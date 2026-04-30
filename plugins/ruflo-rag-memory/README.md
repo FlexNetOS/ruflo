@@ -101,6 +101,26 @@ Auto-imports Claude Code's native `~/.claude/projects/*/memory/*.md` files into 
 
 Results include source attribution: `claude-code`, `auto-memory`, or `agentdb`.
 
+## SmartRetrieval (ADR-090)
+
+5-phase retrieval pipeline for higher-quality recall across sessions:
+
+1. **Query expansion** -- template-based variant generation (no LLM)
+2. **Multi-query fan-out + RRF** -- Reciprocal Rank Fusion across variants
+3. **Recency boost** -- exponential decay from metadata timestamps
+4. **MMR diversity** -- token-Jaccard Maximal Marginal Relevance re-ranking
+5. **Session round-robin** -- interleaved results from distinct sessions
+
+```bash
+# CLI
+npx @claude-flow/cli@latest memory search --query "auth patterns" --smart --limit 10
+
+# MCP
+mcp__claude-flow__memory_search({ query: "auth patterns", smart: true, limit: 10 })
+```
+
+Best for multi-session recall, temporal queries ("what did we decide last week?"), and diverse result sets.
+
 ## Unified Search
 
 Queries across all namespaces simultaneously with MMR diversity reranking:

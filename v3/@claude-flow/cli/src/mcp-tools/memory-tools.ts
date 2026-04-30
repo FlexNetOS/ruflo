@@ -337,6 +337,7 @@ export const memoryTools: MCPTool[] = [
         namespace: { type: 'string', description: 'Namespace to search (default: "default")' },
         limit: { type: 'number', description: 'Maximum results (default: 10)' },
         threshold: { type: 'number', description: 'Minimum similarity threshold 0-1 (default: 0.3)' },
+        smart: { type: 'boolean', description: 'Enable SmartRetrieval pipeline — query expansion, RRF fusion, recency boost, MMR diversity (default: false)' },
       },
       required: ['query'],
     },
@@ -354,6 +355,60 @@ export const memoryTools: MCPTool[] = [
       const startTime = performance.now();
 
       try {
+        if (input.smart) {
+          // SmartRetrieval pipeline (ADR-090)
+          const { smartSearch } = await import('@claude-flow/memory');
+
+          // Adapt searchEntries to the SearchFn interface
+          const rawSearch = async (req: { query: string; namespace?: string; limit?: number; threshold?: number }) => {
+            const r = await searchEntries({
+              query: req.query,
+              namespace: req.namespace || namespace,
+              limit: req.limit || limit * 3,
+              threshold: req.threshold ?? threshold,
+            });
+            return {
+              results: r.results.map(e => ({
+                id: e.id,
+                key: e.key,
+                content: e.content,
+                score: e.score,
+                namespace: e.namespace,
+              })),
+            };
+          };
+
+          const smartResult = await smartSearch(rawSearch, {
+            query,
+            namespace,
+            limit,
+            threshold,
+          });
+
+          const duration = performance.now() - startTime;
+
+          const results = smartResult.results.map(r => {
+            let value: unknown = r.content;
+            try { value = JSON.parse(r.content); } catch { /* keep as string */ }
+            return {
+              key: r.key,
+              namespace: r.namespace,
+              value,
+              similarity: r.score,
+            };
+          });
+
+          return {
+            query,
+            results,
+            total: results.length,
+            searchTime: `${duration.toFixed(2)}ms`,
+            backend: 'SmartRetrieval (RRF + MMR + Recency)',
+            stats: smartResult.stats,
+          };
+        }
+
+        // Original non-smart path (unchanged)
         const result = await searchEntries({
           query,
           namespace,
