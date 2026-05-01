@@ -1,8 +1,11 @@
 steps:
-  # Build the WASM-integrated ruvocal image from source
+  # Build the WASM-integrated ruvocal image with embedded MongoDB
+  # (INCLUDE_DB=true triggers the multi-stage Dockerfile path that
+  # copies mongod from mongo:7 and sets MONGODB_URL=mongodb://localhost:27017).
   - name: 'gcr.io/cloud-builders/docker'
     args: [
       'build',
+      '--build-arg', 'INCLUDE_DB=true',
       '-t', 'gcr.io/${PROJECT_ID}/ruvocal:${_VERSION}',
       '-f', 'Dockerfile',
       '.'
@@ -20,18 +23,16 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/${PROJECT_ID}/ruvocal:latest']
 
-  # Deploy to Cloud Run
+  # Deploy to Cloud Run with embedded MongoDB.
   #
-  # Pre-requisites (operator must complete before first deploy):
-  #   1. MongoDB endpoint reachable from Cloud Run (Atlas free tier or
-  #      a sidecar container). Set MONGODB_URL via Secret Manager:
-  #      `gcloud secrets create ruvocal-mongodb-url --data-file=-`
-  #   2. AI provider keys present in Secret Manager (per ADR-029):
-  #      `openai-api-key`, `google-api-key`, `openrouter-api-key`
-  #   3. Optional: custom domain mapping (`gcloud beta run domain-mappings`)
+  # NOTE: MongoDB data is ephemeral — Cloud Run's container filesystem is
+  # discarded on each cold start. This is acceptable for validation but
+  # NOT for production. For persistence, follow up with either Atlas or
+  # a Cloud Run multi-container revision (see ADR-033).
   #
-  # See ADR-033 for the deployment plan and ADR-029 for the established
-  # secret-management pattern.
+  # Provider keys come from existing ruv-dev Secret Manager secrets per
+  # ADR-029. Only one CPU is allocated; mongo is lightweight when used
+  # only for chat session storage.
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args: [
@@ -43,13 +44,11 @@ steps:
       '--memory', '2Gi',
       '--cpu', '2',
       '--min-instances', '0',
-      '--max-instances', '5',
+      '--max-instances', '3',
       '--timeout', '300',
       '--allow-unauthenticated',
-      '--set-env-vars', 'NODE_ENV=production,BODY_SIZE_LIMIT=15728640',
-      # Secret names match those present in ruv-dev Secret Manager.
-      # MONGODB_URL must be provisioned first (see ADR-033 deployment notes).
-      '--set-secrets', 'ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_AI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,MONGODB_URL=ruvocal-mongodb-url:latest'
+      '--set-env-vars', 'NODE_ENV=production,BODY_SIZE_LIMIT=15728640,INCLUDE_DB=true,MONGODB_URL=mongodb://localhost:27017',
+      '--set-secrets', 'ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_AI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest'
     ]
 
 substitutions:
@@ -57,4 +56,5 @@ substitutions:
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
 timeout: 1800s
