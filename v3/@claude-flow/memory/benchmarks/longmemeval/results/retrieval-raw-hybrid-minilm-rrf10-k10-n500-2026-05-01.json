@@ -1,0 +1,94 @@
+{
+  "strategy": "raw",
+  "embedder": "Xenova/all-MiniLM-L6-v2",
+  "retrieval": "hybrid",
+  "label": "hybrid-minilm-rrf10",
+  "timestamp": "2026-05-01T18:20:39.458Z",
+  "total": 500,
+  "k": 10,
+  "overall": {
+    "session_recall_at_k": 1,
+    "session_top1_recall": 1,
+    "content_at_1": 0.214,
+    "content_at_3": 0.352,
+    "content_at_k": 0.444,
+    "mrr_content": 0.2936
+  },
+  "by_category": [
+    {
+      "type": "knowledge-update",
+      "total": 78,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.2308,
+      "content_at_3": 0.5513,
+      "content_at_k": 0.7308,
+      "mrr_content": 0.4069
+    },
+    {
+      "type": "multi-session",
+      "total": 133,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.0602,
+      "content_at_3": 0.2105,
+      "content_at_k": 0.3233,
+      "mrr_content": 0.148
+    },
+    {
+      "type": "single-session-assistant",
+      "total": 56,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.3571,
+      "content_at_3": 0.5,
+      "content_at_k": 0.5357,
+      "mrr_content": 0.4345
+    },
+    {
+      "type": "single-session-preference",
+      "total": 30,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0,
+      "content_at_3": 0,
+      "content_at_k": 0,
+      "mrr_content": 0
+    },
+    {
+      "type": "single-session-user",
+      "total": 70,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.6429,
+      "content_at_3": 0.7714,
+      "content_at_k": 0.8143,
+      "mrr_content": 0.7107
+    },
+    {
+      "type": "temporal-reasoning",
+      "total": 133,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.1203,
+      "content_at_3": 0.1729,
+      "content_at_k": 0.2632,
+      "mrr_content": 0.1602
+    }
+  ],
+  "latency": {
+    "retrieval_p50_ms": 1.8224,
+    "retrieval_p95_ms": 3.302,
+    "retrieval_p99_ms": 4.1209
+  },
+  "config": {
+    "embed_dim": 384,
+    "embedder": "Xenova/all-MiniLM-L6-v2",
+    "retrieval": "hybrid",
+    "hnsw_m": 16,
+    "hnsw_ef_construction": 200,
+    "rrf_k": 10,
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75
+  }
+}

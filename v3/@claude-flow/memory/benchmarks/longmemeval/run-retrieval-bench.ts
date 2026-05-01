@@ -35,10 +35,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 type Strategy = 'raw' | 'smart';
 type EmbedderKind = 'hash' | 'minilm' | 'bge-small' | 'bge-base' | 'bge-large';
+type RetrievalKind = 'dense' | 'bm25' | 'hybrid';
 
 interface Args {
   strategy: Strategy;
   embedder: EmbedderKind;
+  retrieval: RetrievalKind;
   limit: number;
   k: number;
   dataFile: string;
@@ -52,6 +54,10 @@ interface Args {
   mmrLambda: number;
   recencyWeight: number;
   recencyHalfLifeDays: number;
+  // Hybrid tunables
+  rrfK: number;       // RRF k constant (default 60)
+  bm25K1: number;     // BM25 k1 (default 1.5)
+  bm25B: number;      // BM25 b  (default 0.75)
 }
 
 function parseArgs(): Args {
@@ -59,6 +65,7 @@ function parseArgs(): Args {
   const args: Args = {
     strategy: 'raw',
     embedder: 'hash',
+    retrieval: 'dense',
     limit: 0,
     k: 10,
     dataFile: join(__dirname, 'data', 'longmemeval_oracle.json'),
@@ -71,6 +78,9 @@ function parseArgs(): Args {
     mmrLambda: 0.75,
     recencyWeight: 0.15,
     recencyHalfLifeDays: 30,
+    rrfK: 60,
+    bm25K1: 1.5,
+    bm25B: 0.75,
   };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
@@ -84,6 +94,23 @@ function parseArgs(): Args {
       case '--embedder':
       case '-e':
         args.embedder = (next as EmbedderKind) ?? 'hash';
+        i++;
+        break;
+      case '--retrieval':
+      case '-r':
+        args.retrieval = (next as RetrievalKind) ?? 'dense';
+        i++;
+        break;
+      case '--rrf-k':
+        args.rrfK = parseFloat(next ?? '60');
+        i++;
+        break;
+      case '--bm25-k1':
+        args.bm25K1 = parseFloat(next ?? '1.5');
+        i++;
+        break;
+      case '--bm25-b':
+        args.bm25B = parseFloat(next ?? '0.75');
         i++;
         break;
       case '--limit':
@@ -352,6 +379,97 @@ async function makeEmbedder(kind: EmbedderKind): Promise<Embedder> {
   return createOnnxEmbedder(cfg.id, cfg.dim);
 }
 
+// ── BM25 (Okapi) sparse retriever ────────────────────────────
+//
+// Standard Okapi BM25. Per-item index (LongMemEval gives a fresh haystack
+// per question). Tokenizer matches the hash embedder's tokenizer for
+// fairness — same word boundaries, same lowercasing.
+
+function tokenize(text: string): string[] {
+  return text.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(t => t.length >= 2);
+}
+
+interface BM25Doc {
+  id: string;
+  tokens: string[];
+  tf: Map<string, number>;
+  len: number;
+}
+
+class BM25Index {
+  private docs: BM25Doc[] = [];
+  private df = new Map<string, number>();
+  private avgLen = 0;
+  private N = 0;
+  constructor(private k1: number, private b: number) {}
+
+  addAll(items: { id: string; content: string }[]): void {
+    let totalLen = 0;
+    for (const it of items) {
+      const tokens = tokenize(it.content);
+      const tf = new Map<string, number>();
+      for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
+      this.docs.push({ id: it.id, tokens, tf, len: tokens.length });
+      // df: count of distinct tokens per doc
+      for (const t of tf.keys()) this.df.set(t, (this.df.get(t) ?? 0) + 1);
+      totalLen += tokens.length;
+    }
+    this.N = this.docs.length;
+    this.avgLen = this.N > 0 ? totalLen / this.N : 0;
+  }
+
+  search(query: string, k: number): { id: string; score: number }[] {
+    const qTokens = tokenize(query);
+    if (qTokens.length === 0 || this.N === 0) return [];
+    // Pre-compute query-term IDFs
+    const idf = new Map<string, number>();
+    for (const qt of qTokens) {
+      const df = this.df.get(qt) ?? 0;
+      // Standard BM25 IDF with +1 to avoid negative scores
+      idf.set(qt, Math.log((this.N - df + 0.5) / (df + 0.5) + 1));
+    }
+    const scored: { id: string; score: number }[] = [];
+    for (const d of this.docs) {
+      let score = 0;
+      const lenNorm = 1 - this.b + this.b * (d.len / Math.max(1, this.avgLen));
+      for (const qt of qTokens) {
+        const f = d.tf.get(qt) ?? 0;
+        if (f === 0) continue;
+        const w = idf.get(qt) ?? 0;
+        score += w * (f * (this.k1 + 1)) / (f + this.k1 * lenNorm);
+      }
+      if (score > 0) scored.push({ id: d.id, score });
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, k);
+  }
+}
+
+// ── Reciprocal Rank Fusion ───────────────────────────────────
+//
+// Cormack et al. 2009. RRF score for doc d across rankings R is
+// sum over r in R of 1/(k_rrf + rank_r(d)). k_rrf=60 is the standard
+// constant from the paper. Robust to score-scale differences across
+// retrievers — only ranks matter.
+
+function rrfMerge(
+  rankings: { id: string; score: number }[][],
+  k: number,
+  kRRF: number,
+): { id: string; score: number }[] {
+  const combined = new Map<string, number>();
+  for (const ranking of rankings) {
+    for (let rank = 0; rank < ranking.length; rank++) {
+      const id = ranking[rank].id;
+      combined.set(id, (combined.get(id) ?? 0) + 1 / (kRRF + rank + 1));
+    }
+  }
+  return [...combined.entries()]
+    .map(([id, score]) => ({ id, score }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
+}
+
 // ── Per-item retrieval run ────────────────────────────────────
 
 interface RetrievalRun {
@@ -367,30 +485,83 @@ interface RetrievalRun {
   mrrContent: number;          // 1/rank of first content-matching result, 0 if none
 }
 
-async function runItemRaw(
-  item: EvalItem,
-  k: number,
-  embedder: Embedder,
-): Promise<RetrievalRun> {
-  const index = new HnswLite(embedder.dim, 16, 200, 'cosine');
-  const byId = new Map<string, EvalItem['messages'][number]>();
+// ── Per-item index bundle ────────────────────────────────────
+//
+// Builds whichever indexes the retrieval mode needs. `dense` skips BM25
+// construction; `bm25` skips embedding entirely (huge speedup for ONNX
+// embedders); `hybrid` builds both.
 
-  // Batch-embed all message contents first — much faster for ONNX models
-  // than per-message calls. Hash embedder is unaffected (sync underneath).
-  const contents = item.messages.map(m => m.content);
-  const embeddings = await embedder.embedBatch(contents);
-  for (let i = 0; i < item.messages.length; i++) {
-    const m = item.messages[i];
-    index.add(m.id, embeddings[i]);
-    byId.set(m.id, m);
+interface ItemIndexes {
+  dense?: HnswLite;
+  bm25?: BM25Index;
+  byId: Map<string, EvalItem['messages'][number]>;
+}
+
+async function buildItemIndexes(
+  item: EvalItem,
+  embedder: Embedder,
+  retrieval: RetrievalKind,
+  bm25K1: number,
+  bm25B: number,
+): Promise<ItemIndexes> {
+  const byId = new Map<string, EvalItem['messages'][number]>();
+  for (const m of item.messages) byId.set(m.id, m);
+
+  const out: ItemIndexes = { byId };
+
+  if (retrieval === 'dense' || retrieval === 'hybrid') {
+    const dense = new HnswLite(embedder.dim, 16, 200, 'cosine');
+    const contents = item.messages.map(m => m.content);
+    const embeddings = await embedder.embedBatch(contents);
+    for (let i = 0; i < item.messages.length; i++) {
+      dense.add(item.messages[i].id, embeddings[i]);
+    }
+    out.dense = dense;
   }
 
-  const qEmb = await embedder.embed(item.question);
-  const start = performance.now();
-  const raw = index.search(qEmb, k, 0);
-  const retrievalMs = performance.now() - start;
+  if (retrieval === 'bm25' || retrieval === 'hybrid') {
+    const bm25 = new BM25Index(bm25K1, bm25B);
+    bm25.addAll(item.messages.map(m => ({ id: m.id, content: m.content })));
+    out.bm25 = bm25;
+  }
 
-  const topK: SearchCandidate[] = raw.map(r => {
+  return out;
+}
+
+// ── Unified retrieval function ───────────────────────────────
+//
+// Returns top-k {id, score} for a query, using whichever retrieval mode
+// is configured. For hybrid: pulls fan-out * 2 from each retriever then
+// RRF-merges, keeping the top-k.
+
+async function retrieve(
+  query: string,
+  idx: ItemIndexes,
+  embedder: Embedder,
+  retrieval: RetrievalKind,
+  k: number,
+  rrfK: number,
+): Promise<{ id: string; score: number }[]> {
+  if (retrieval === 'dense') {
+    const qEmb = await embedder.embed(query);
+    return idx.dense!.search(qEmb, k, 0);
+  }
+  if (retrieval === 'bm25') {
+    return idx.bm25!.search(query, k);
+  }
+  // hybrid: fan out wider on each side, RRF-merge to k
+  const fan = Math.max(k * 3, 20);
+  const qEmb = await embedder.embed(query);
+  const denseTop = idx.dense!.search(qEmb, fan, 0);
+  const sparseTop = idx.bm25!.search(query, fan);
+  return rrfMerge([denseTop, sparseTop], k, rrfK);
+}
+
+function toCandidates(
+  hits: { id: string; score: number }[],
+  byId: Map<string, EvalItem['messages'][number]>,
+): SearchCandidate[] {
+  return hits.map(r => {
     const m = byId.get(r.id)!;
     return {
       id: m.id,
@@ -402,8 +573,21 @@ async function runItemRaw(
       updatedAt: m.ts,
     };
   });
+}
 
-  return scoreRun(item, topK, retrievalMs);
+async function runItemRaw(
+  item: EvalItem,
+  k: number,
+  args: Args,
+  embedder: Embedder,
+): Promise<RetrievalRun> {
+  const idx = await buildItemIndexes(item, embedder, args.retrieval, args.bm25K1, args.bm25B);
+
+  const start = performance.now();
+  const hits = await retrieve(item.question, idx, embedder, args.retrieval, k, args.rrfK);
+  const retrievalMs = performance.now() - start;
+
+  return scoreRun(item, toCandidates(hits, idx.byId), retrievalMs);
 }
 
 async function runItemSmart(
@@ -412,34 +596,11 @@ async function runItemSmart(
   args: Args,
   embedder: Embedder,
 ): Promise<RetrievalRun> {
-  const index = new HnswLite(embedder.dim, 16, 200, 'cosine');
-  const byId = new Map<string, EvalItem['messages'][number]>();
-
-  const contents = item.messages.map(m => m.content);
-  const embeddings = await embedder.embedBatch(contents);
-  for (let i = 0; i < item.messages.length; i++) {
-    const m = item.messages[i];
-    index.add(m.id, embeddings[i]);
-    byId.set(m.id, m);
-  }
+  const idx = await buildItemIndexes(item, embedder, args.retrieval, args.bm25K1, args.bm25B);
 
   const searchFn: SearchFn = async ({ query, limit = 10 }) => {
-    const qEmb = await embedder.embed(query);
-    const raw = index.search(qEmb, limit, 0);
-    return {
-      results: raw.map(r => {
-        const m = byId.get(r.id)!;
-        return {
-          id: m.id,
-          key: m.id,
-          content: m.content,
-          score: r.score,
-          namespace: 'bench',
-          metadata: { session_id: m.sessionId, role: m.role },
-          updatedAt: m.ts,
-        };
-      }),
-    };
+    const hits = await retrieve(query, idx, embedder, args.retrieval, limit, args.rrfK);
+    return { results: toCandidates(hits, idx.byId) };
   };
 
   const start = performance.now();
@@ -515,6 +676,7 @@ interface Aggregate {
 interface Report {
   strategy: Strategy;
   embedder: string;
+  retrieval: RetrievalKind;
   label: string;
   timestamp: string;
   total: number;
@@ -529,8 +691,12 @@ interface Report {
   config: {
     embed_dim: number;
     embedder: string;
+    retrieval: RetrievalKind;
     hnsw_m: number;
     hnsw_ef_construction: number;
+    rrf_k?: number;
+    bm25_k1?: number;
+    bm25_b?: number;
   };
 }
 
@@ -556,7 +722,7 @@ function aggregate(bucket: RetrievalRun[]): Aggregate {
 function buildReport(
   strategy: Strategy,
   embedder: Embedder,
-  label: string,
+  args: Args,
   k: number,
   runs: RetrievalRun[],
 ): Report {
@@ -580,7 +746,8 @@ function buildReport(
   return {
     strategy,
     embedder: embedder.name,
-    label,
+    retrieval: args.retrieval,
+    label: args.label,
     timestamp: new Date().toISOString(),
     total: runs.length,
     k,
@@ -594,8 +761,12 @@ function buildReport(
     config: {
       embed_dim: embedder.dim,
       embedder: embedder.name,
+      retrieval: args.retrieval,
       hnsw_m: 16,
       hnsw_ef_construction: 200,
+      rrf_k: args.retrieval === 'hybrid' ? args.rrfK : undefined,
+      bm25_k1: args.retrieval !== 'dense' ? args.bm25K1 : undefined,
+      bm25_b: args.retrieval !== 'dense' ? args.bm25B : undefined,
     },
   };
 }
@@ -639,6 +810,10 @@ async function main() {
   console.log('=== LongMemEval Retrieval Benchmark (ADR-090) ===');
   console.log(`Strategy:  ${args.strategy}`);
   console.log(`Embedder:  ${args.embedder}`);
+  console.log(`Retrieval: ${args.retrieval}${args.retrieval === 'hybrid' ? ` (rrf-k=${args.rrfK})` : ''}`);
+  if (args.retrieval !== 'dense') {
+    console.log(`BM25:      k1=${args.bm25K1} b=${args.bm25B}`);
+  }
   console.log(`Limit:     ${args.limit || 'all'}`);
   console.log(`k:         ${args.k}`);
   console.log(`Data:      ${args.dataFile}`);
@@ -660,7 +835,7 @@ async function main() {
     runs.push(
       args.strategy === 'smart'
         ? await runItemSmart(items[i], args.k, args, embedder)
-        : await runItemRaw(items[i], args.k, embedder),
+        : await runItemRaw(items[i], args.k, args, embedder),
     );
     if ((i + 1) % 10 === 0 || i === items.length - 1) {
       const c1 = runs.filter(r => r.contentHitAt1).length;
@@ -674,7 +849,7 @@ async function main() {
   console.log(`\n  Done in ${(totalMs / 1000).toFixed(1)}s`);
 
   console.log('[4/4] Building report...');
-  const report = buildReport(args.strategy, embedder, args.label, args.k, runs);
+  const report = buildReport(args.strategy, embedder, args, args.k, runs);
 
   mkdirSync(args.outDir, { recursive: true });
   const stamp = new Date().toISOString().slice(0, 10);

@@ -1,0 +1,93 @@
+{
+  "strategy": "raw",
+  "embedder": "hash-384",
+  "retrieval": "bm25",
+  "label": "bm25-only",
+  "timestamp": "2026-05-01T18:07:56.803Z",
+  "total": 500,
+  "k": 10,
+  "overall": {
+    "session_recall_at_k": 1,
+    "session_top1_recall": 1,
+    "content_at_1": 0.234,
+    "content_at_3": 0.36,
+    "content_at_k": 0.438,
+    "mrr_content": 0.3056
+  },
+  "by_category": [
+    {
+      "type": "knowledge-update",
+      "total": 78,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.2692,
+      "content_at_3": 0.5641,
+      "content_at_k": 0.7051,
+      "mrr_content": 0.4311
+    },
+    {
+      "type": "multi-session",
+      "total": 133,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.0752,
+      "content_at_3": 0.203,
+      "content_at_k": 0.3308,
+      "mrr_content": 0.1529
+    },
+    {
+      "type": "single-session-assistant",
+      "total": 56,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.4107,
+      "content_at_3": 0.5179,
+      "content_at_k": 0.5357,
+      "mrr_content": 0.4658
+    },
+    {
+      "type": "single-session-preference",
+      "total": 30,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0,
+      "content_at_3": 0,
+      "content_at_k": 0,
+      "mrr_content": 0
+    },
+    {
+      "type": "single-session-user",
+      "total": 70,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.6857,
+      "content_at_3": 0.7714,
+      "content_at_k": 0.8143,
+      "mrr_content": 0.7367
+    },
+    {
+      "type": "temporal-reasoning",
+      "total": 133,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.1128,
+      "content_at_3": 0.1955,
+      "content_at_k": 0.2481,
+      "mrr_content": 0.1591
+    }
+  ],
+  "latency": {
+    "retrieval_p50_ms": 0.0123,
+    "retrieval_p95_ms": 0.0354,
+    "retrieval_p99_ms": 0.0503
+  },
+  "config": {
+    "embed_dim": 384,
+    "embedder": "hash-384",
+    "retrieval": "bm25",
+    "hnsw_m": 16,
+    "hnsw_ef_construction": 200,
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75
+  }
+}

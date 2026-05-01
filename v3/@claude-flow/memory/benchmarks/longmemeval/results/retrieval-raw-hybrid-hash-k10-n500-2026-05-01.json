@@ -1,0 +1,94 @@
+{
+  "strategy": "raw",
+  "embedder": "hash-384",
+  "retrieval": "hybrid",
+  "label": "hybrid-hash",
+  "timestamp": "2026-05-01T18:07:58.964Z",
+  "total": 500,
+  "k": 10,
+  "overall": {
+    "session_recall_at_k": 1,
+    "session_top1_recall": 1,
+    "content_at_1": 0.242,
+    "content_at_3": 0.38,
+    "content_at_k": 0.438,
+    "mrr_content": 0.3129
+  },
+  "by_category": [
+    {
+      "type": "knowledge-update",
+      "total": 78,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.2692,
+      "content_at_3": 0.6026,
+      "content_at_k": 0.6923,
+      "mrr_content": 0.4362
+    },
+    {
+      "type": "multi-session",
+      "total": 133,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.1053,
+      "content_at_3": 0.2556,
+      "content_at_k": 0.3308,
+      "mrr_content": 0.1822
+    },
+    {
+      "type": "single-session-assistant",
+      "total": 56,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.3929,
+      "content_at_3": 0.5357,
+      "content_at_k": 0.5357,
+      "mrr_content": 0.4583
+    },
+    {
+      "type": "single-session-preference",
+      "total": 30,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0,
+      "content_at_3": 0,
+      "content_at_k": 0,
+      "mrr_content": 0
+    },
+    {
+      "type": "single-session-user",
+      "total": 70,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.6857,
+      "content_at_3": 0.8,
+      "content_at_k": 0.8143,
+      "mrr_content": 0.7314
+    },
+    {
+      "type": "temporal-reasoning",
+      "total": 133,
+      "session_recall_at_k": 1,
+      "session_top1_recall": 1,
+      "content_at_1": 0.1203,
+      "content_at_3": 0.1729,
+      "content_at_k": 0.2556,
+      "mrr_content": 0.1605
+    }
+  ],
+  "latency": {
+    "retrieval_p50_ms": 0.0427,
+    "retrieval_p95_ms": 0.0831,
+    "retrieval_p99_ms": 0.109
+  },
+  "config": {
+    "embed_dim": 384,
+    "embedder": "hash-384",
+    "retrieval": "hybrid",
+    "hnsw_m": 16,
+    "hnsw_ef_construction": 200,
+    "rrf_k": 60,
+    "bm25_k1": 1.5,
+    "bm25_b": 0.75
+  }
+}

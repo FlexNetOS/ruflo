@@ -203,25 +203,42 @@ Branch: `bench/longmemeval-2026-05-01` · Full report: `v3/@claude-flow/memory/b
 
 **Honest assessment.** Session-level routing is solved (R@10 and Top-1 both 100% — the right session always lands somewhere in the top-k). The content-level miss is what's holding the score down: even when we retrieve the right session, the answer span isn't in our top-1 chunk often enough. That's an embedding/chunking issue, not a session-routing issue.
 
-## Optimization Roadmap (informed by 2026-05-01 results)
+## Addendum 2026-05-01b — Encoder ablation invalidates the original Tier 1 #1
+
+A follow-up audit of `run-retrieval-bench.ts` revealed that the existing "embed" function was a **deterministic hash of word unigrams + word bigrams + character 3-grams** — bag-of-words, not a learned encoder. The bench was extended with `--embedder hash|minilm|bge-small|bge-base|bge-large` and re-run at n=500.
+
+| Metric | hash raw | MiniLM raw | hash smart | MiniLM smart |
+|---|---|---|---|---|
+| Content@1 | **22.2%** | 17.6% | **24.6%** | 19.4% |
+| Content@3 | 35.8% | 32.4% | 34.6% | 31.8% |
+| MRR | **0.2967** | 0.2621 | **0.3058** | 0.2702 |
+
+**MiniLM lost on every Content@k metric.** Why: the bench's `Content@k` metric is **lexical substring match** — a chunk only counts as a hit if the exact answer string appears as a substring. Hash's character-3-gram + word-bigram features inadvertently maximize token-overlap, which is what this metric rewards. Dense semantic embeddings optimize for *semantic* similarity — a paraphrase of the answer scores high on cosine but 0 on substring match.
+
+**This invalidates the simplest reading of Tier 1 #1 below.** A stronger semantic encoder optimizes the wrong objective for *this* metric. See `v3/@claude-flow/memory/benchmarks/longmemeval/results/SUMMARY-2026-05-01.md` for the full ablation and the reordered priorities incorporated into the roadmap below.
+
+There is also a deeper question raised by this finding: **is `Content@k` the right metric for AgentDB?** LongMemEval's official `src/evaluation/evaluate_qa.py` uses an LLM to grade a *generated answer* against the gold reference — it does not substring-match retrieved chunks. Our bench measures retrieval-only quality with a strict lexical proxy. The Tier 4 hygiene list now adds end-to-end LLM-graded scoring as a parallel track so we don't optimize for a proxy that mischaracterizes semantic encoders.
+
+## Optimization Roadmap (revised 2026-05-01b)
 
 The benchmark surfaces clear, ordered targets. Each item lists the metric it should move and a rough lever cost.
 
-### Tier 1 — Embedding & chunking quality (biggest expected gains)
+### Tier 1 — Retrieval quality (reordered after the 2026-05-01b ablation)
 
-1. **Upgrade embedding model from all-MiniLM-L6-v2 (384d) to a stronger encoder.**
-   - Candidates: `nomic-embed-text-v1.5` (768d), `bge-large-en-v1.5` (1024d), `Qwen3-Embedding-0.6B` (1024d, multilingual). Already supported by ONNX runtime; just swap the model card.
-   - Expected: +5–15 pp on Content@1, possibly closes the gap with `single-session-preference` (currently 0%).
-   - Cost: ~3x larger index, ~2x ingest time. Mitigated by Int8 quantization (already in repo, ADR-076).
+1. **Hybrid sparse+dense retrieval (BM25 + dense via RRF).** *[Was #3 — promoted after MiniLM lost to hash on Content@k.]*
+   - BM25 IS lexical retrieval done properly: full-document scoring with TF-IDF and length normalization, not opportunistic token overlap. It directly rewards the lexical-substring metric the bench currently uses.
+   - Combine with dense (MiniLM or bge-large) via Reciprocal Rank Fusion (RRF). SmartRetrieval already has RRF infrastructure for multi-query — extend to dense+sparse.
+   - Expected: +3–8 pp on Content@1 broadly, with bigger wins on `multi-session` and `temporal-reasoning` (categories where dense currently loses ground).
 
 2. **Smarter chunking with sentence boundaries + question-style overlap.**
-   - Today the harness chunks at session boundaries. Many "preference" answers live mid-message and get diluted.
+   - Today the harness chunks at session boundaries. Many `single-session-preference` answers live mid-message and get diluted (currently 0% across both encoders and both pipelines — a structural failure, not a ranking failure).
    - Use semantic-aware chunking (e.g., `semchunk` with a 256-token window, 64-token overlap, sentence boundaries). Index every chunk; score sessions by max-chunk score.
-   - Expected: +2–5 pp on Content@1 across all categories, big gains on `single-session-preference` (the 0% category).
+   - Expected: +2–5 pp on Content@1 across all categories, big gains on `single-session-preference` specifically.
 
-3. **Hybrid sparse+dense retrieval.**
-   - Add BM25 over the same chunks; combine with dense via Reciprocal Rank Fusion (RRF). SmartRetrieval already has RRF infrastructure for multi-query — extend to dense+sparse.
-   - Expected: +3–8 pp on Content@1 for fact-recall categories (`knowledge-update`, `single-session-user`).
+3. **Upgrade embedding model — *deferred* until after Tier 1 #1 lands.** *[Was #1.]*
+   - Candidates: `nomic-embed-text-v1.5` (768d), `bge-large-en-v1.5` (1024d), `Qwen3-Embedding-0.6B` (1024d, multilingual). Already supported by ONNX runtime; just swap the model card.
+   - Caveat from the ablation: dense encoders alone underperform hash on this lexical-substring metric. Their value materializes when paired with BM25 in a hybrid, or when graded against a semantic-aware metric (Tier 4 #13). Don't ship the swap before #1.
+   - Cost: ~3x larger index, ~2x ingest time. Mitigated by Int8 quantization (ADR-076).
 
 ### Tier 2 — Pipeline tuning (smaller gains, free metrics)
 
@@ -257,14 +274,29 @@ The benchmark surfaces clear, ordered targets. Each item lists the metric it sho
 10. **Fix the vitest bench suite** so cache / HNSW / vector / write throughput regresses are caught automatically.
     - Today `npm run bench` fails with "No test suite found" — the `.bench.ts` files use a custom `framework/benchmark.ts` runner that's incompatible with vitest's `bench()` API and has a missing `printResults` + NaN time tracking. Migrate to `vitest bench` syntax or fix the framework.
 
-11. **Re-run the n=500 sweep after each Tier-1 change** with a `--label optimization-N` flag so we have a clean ablation history.
+11. **Re-run the n=500 sweep after each Tier-1 change** with a `--label optimization-N` and `--embedder X` flag so we have a clean ablation history (encoder × pipeline × dataset-size).
 
-12. **Investigate the `single-session-preference` 0% across both raw AND smart.**
-    - Both strategies miss this category entirely. The session is always retrieved (R@10 = 100%) but the preference answer never makes it to the top-k chunks. Strong signal that this is a chunking / embedding limitation rather than a retrieval pipeline gap. Manual inspection of 5 failing questions should clarify.
+12. **Investigate the `single-session-preference` 0% across both encoders and both pipelines.**
+    - Hash raw, hash smart, MiniLM raw, MiniLM smart all score 0% on this category. The session is always retrieved (R@10 = 100%) but the preference answer never makes it to the top-k chunks. Strong signal that this is a *chunking* limitation (preference answers live mid-message and the harness chunks at session boundaries), reinforcing Tier 1 #2. Manual inspection of 5 failing questions should confirm.
 
-### Targets
+13. **Wire LongMemEval's official `evaluate_qa.py` for end-to-end grading.** *[New — added after the encoder ablation.]*
+    - The current `Content@k` metric is a lexical-substring proxy. The official evaluator uses an LLM to grade a generated answer against the gold reference — it credits semantic matches (a paraphrase of the answer counts as a hit). The bench should report both metrics so we can spot when an optimization helps lexical retrieval but hurts semantic answer quality (or vice-versa).
+    - Cost: ~$0.01 / question via Haiku for the grading pass. ~$5 for an n=500 run — cheap, but only worth running on Tier-1-promoted candidates.
+    - Without this, Tier 1 #3 (encoder swap) cannot be fairly evaluated, because dense encoders are penalized on the current metric.
 
-If we land Tier 1 + Tier 2 we should comfortably clear **40% Content@1 / 0.45 MRR** without any LLM-in-the-loop reranking, putting AgentDB in the same neighborhood as Observational Memory (94.87% on the LLM-graded final-answer score, which is a different metric than our retrieval-only Content@1). Tier 3's cross-encoder rerank is what we'd reach for to chase MemPalace's 96.6% raw — but at that point the bottleneck shifts to QA-prompt quality, not retrieval.
+14. **Document the `--embedder` flag in run-retrieval-bench.ts and the SUMMARY template.**
+    - The 2026-05-01b ablation added `--embedder hash|minilm|bge-small|bge-base|bge-large` but the README / harness docs still describe the bench as if there's one embedder. Future readers will misinterpret old result files (`retrieval-raw-baseline-k10-n500-*.json` predates the flag — they're hash, not MiniLM).
+
+### Targets (revised)
+
+Original target: **40% Content@1 / 0.45 MRR** from Tier 1 + Tier 2 without LLM-in-the-loop reranking.
+
+After the 2026-05-01b ablation that target stands, but the path changes:
+- **BM25 + dense RRF (Tier 1 #1)** is the new biggest single lever.
+- The 40% C@1 target may be optimistic if the `single-session-preference` 0% is a structural chunking failure rather than a ranking failure. Tier 1 #2 (semantic chunking) is required to unblock that 30-question (6%) bucket.
+- **Add a parallel target for the LLM-graded metric** once Tier 4 #13 lands: AgentDB should clear **70% on `evaluate_qa.py` end-to-end** before claiming MemPalace-comparable performance. The current 96.6% MemPalace number is *evaluate_qa.py*, not Content@1.
+
+Tier 3's cross-encoder rerank is what we'd reach for to chase MemPalace's 96.6% raw on the LLM-graded scale — but only after BM25 hybrid + LLM grading land, so we know we're optimizing for the right objective.
 
 ## References
 
