@@ -1,8 +1,8 @@
 {
   "manifest": {
     "schema": "ruflo-witness/v1",
-    "issuedAt": "2026-05-10T00:40:18.980Z",
-    "gitCommit": "2dfde7d3fb6d5d98e617dd95004f196f8d49ef0b",
+    "issuedAt": "2026-05-10T00:52:07.473Z",
+    "gitCommit": "0e6b868b484f8d3597eab7c44ac5a1ed6a784954",
     "branch": "feat/federation-deferred-adrs",
     "os": "macos",
     "releases": {
@@ -12,8 +12,8 @@
       "@claude-flow/memory": "3.0.0-alpha.15"
     },
     "summary": {
-      "totalFixes": 96,
-      "verified": 96,
+      "totalFixes": 97,
+      "verified": 97,
       "missing": 0
     },
     "fixes": [
@@ -784,15 +784,23 @@
         "sha256": "9f751aaee838a85e7b2371bbd73dccb5cb89c6b7751496b18d33d8b8a559de19",
         "marker": "loadQuicTransport",
         "markerVerified": true
+      },
+      {
+        "id": "ADR-104-stream-mux",
+        "desc": "Stream multiplexing — AgentMessage.streamId, per-(address,streamId) receive queue, scoped+catch-all onMessage handlers. Cross-OS validated mac→ruvultra: 5 rpc + 3 event interleaved on wire, server's per-stream handlers received exactly 5 + 3 in correct order, catch-all saw all 8. agentic-flow@2.0.12-fix.8.",
+        "file": "v3/@claude-flow/plugin-agent-federation/dist/plugin.js",
+        "sha256": "9f751aaee838a85e7b2371bbd73dccb5cb89c6b7751496b18d33d8b8a559de19",
+        "marker": "loadQuicTransport",
+        "markerVerified": true
       }
     ]
   },
   "integrity": {
     "manifestHashAlgo": "sha256",
-    "manifestHash": "c7aaa5c275f553fdb3dae78d83d5912de8b5016404d88a4b1c3f46dec4f5022e",
+    "manifestHash": "b0a3bf8c7dbfcbbbaa14dc1528934345f1d46ec1b66b909db30b5bc6876e683a",
     "signatureAlgo": "ed25519",
-    "publicKey": "0e9974af7f5102d499fe5b005ac352d743e0c327b3fec66c670b2425b9b0d83c",
-    "signature": "4c2e4abfacae60b245b849d525e147cce4e1754245fe446808aa09eca5a99efea1a8710228be67d274c1ff0339d10a929dd5fdad8d4996c8d8b4dcca5e370608",
+    "publicKey": "e85263adf5257dc16d2f3060a5388cca80d2bbf513ab3adbc2ae7a70c9572f9e",
+    "signature": "6c76e76130e7416ca8da066387a60e61e35c6c1e90e244d9f9e67caab0b76d2b4448d35b887c6584efd650519f77f7ffab083e131c962933ac4e2d969765bc0b",
     "seedDerivation": "sha256(gitCommit + ':ruflo-witness/v1')"
   }
 }
