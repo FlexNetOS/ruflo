@@ -1,7 +1,24 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 
-	type Pane = "quote" | "chart" | "watch" | "oracle" | "system";
+	type Pane =
+		| "quote"
+		| "chart"
+		| "watch"
+		| "oracle"
+		| "news"
+		| "macro"
+		| "yields"
+		| "fx"
+		| "options"
+		| "insider"
+		| "financials"
+		| "crypto"
+		| "risk"
+		| "corpact"
+		| "inbox"
+		| "export"
+		| "system";
 	type ViewLine = { pane: Pane; text: string };
 	type Envelope = {
 		id: string;
@@ -44,8 +61,44 @@
 		chart: [],
 		watch: [],
 		oracle: [],
+		news: [],
+		macro: [],
+		yields: [],
+		fx: [],
+		options: [],
+		insider: [],
+		financials: [],
+		crypto: [],
+		risk: [],
+		corpact: [],
+		inbox: [],
+		export: [],
 		system: [],
 	};
+
+	// Display order across the grid. Grouped by purpose:
+	//   1. Market-info  : quote, chart, news, macro, yields, fx, crypto
+	//   2. Per-symbol   : options, insider, financials, corpact
+	//   3. Portfolio    : watch, risk
+	//   4. Comms/export : oracle, inbox, export
+	const PANE_ORDER: { id: Exclude<Pane, "system">; title: string; hint: string }[] = [
+		{ id: "quote", title: "Quote", hint: "AAPL DESC GO" },
+		{ id: "chart", title: "Chart", hint: "AAPL CHART 6M GO" },
+		{ id: "news", title: "News", hint: "AAPL NEWS GO" },
+		{ id: "macro", title: "Macro", hint: "MACRO CPI GO" },
+		{ id: "yields", title: "Yields", hint: "YIELDS US10Y GO" },
+		{ id: "fx", title: "FX", hint: "FX EURUSD GO" },
+		{ id: "crypto", title: "Crypto", hint: "BTC CRYPTO GO" },
+		{ id: "options", title: "Options", hint: "AAPL OPTIONS GO" },
+		{ id: "insider", title: "Insider", hint: "AAPL INSIDER GO" },
+		{ id: "financials", title: "Financials", hint: "AAPL FINANCIALS GO" },
+		{ id: "corpact", title: "Corp Actions", hint: "AAPL CORPACT GO" },
+		{ id: "watch", title: "Watchlist", hint: "AAPL WATCH GO" },
+		{ id: "risk", title: "Risk", hint: "PORTFOLIO RISK GO" },
+		{ id: "oracle", title: "Oracle", hint: 'ASK "trend?" GO' },
+		{ id: "inbox", title: "Inbox", hint: "INBOX LIST GO" },
+		{ id: "export", title: "Export", hint: "EXPORT CSV GO" },
+	];
 
 	function pushPane(pane: Pane, text: string) {
 		const next = [...panes[pane], text];
@@ -156,30 +209,18 @@
 	{/if}
 
 	<section class="panes">
-		<div class="pane">
-			<div class="pane-title">Quote</div>
-			<div class="pane-body">
-				{#each panes.quote as l, i (i)}<div>{l}</div>{/each}
+		{#each PANE_ORDER as p (p.id)}
+			<div class="pane">
+				<div class="pane-title">{p.title}</div>
+				<div class="pane-body">
+					{#if panes[p.id].length === 0}
+						<div class="pane-empty">(no data — try {p.hint})</div>
+					{:else}
+						{#each panes[p.id] as l, i (i)}<div>{l}</div>{/each}
+					{/if}
+				</div>
 			</div>
-		</div>
-		<div class="pane">
-			<div class="pane-title">Chart</div>
-			<div class="pane-body">
-				{#each panes.chart as l, i (i)}<div>{l}</div>{/each}
-			</div>
-		</div>
-		<div class="pane">
-			<div class="pane-title">Watchlist</div>
-			<div class="pane-body">
-				{#each panes.watch as l, i (i)}<div>{l}</div>{/each}
-			</div>
-		</div>
-		<div class="pane">
-			<div class="pane-title">Oracle</div>
-			<div class="pane-body">
-				{#each panes.oracle as l, i (i)}<div>{l}</div>{/each}
-			</div>
-		</div>
+		{/each}
 	</section>
 
 	<section class="log">
@@ -222,22 +263,34 @@
 	}
 	.panes {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
-		grid-template-rows: 1fr 1fr;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		grid-auto-rows: minmax(8rem, 1fr);
+		grid-auto-flow: row;
 		gap: 0.5rem;
-		min-height: 22rem;
+		min-height: 44rem;
+	}
+	@media (max-width: 1100px) {
+		.panes {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+	@media (max-width: 600px) {
+		.panes {
+			grid-template-columns: 1fr;
+		}
 	}
 	.pane {
 		border: 1px solid #232830;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
+		overflow: hidden;
 	}
 	.pane-title {
 		padding: 0.25rem 0.5rem;
 		background: #11151a;
 		border-bottom: 1px solid #232830;
-		color: #9ad5ff;
+		color: #b8c7d4;
 		font-size: 11px;
 		letter-spacing: 0.05em;
 		text-transform: uppercase;
@@ -248,6 +301,10 @@
 		flex: 1 1 auto;
 		min-height: 0;
 		font-size: 12px;
+	}
+	.pane-empty {
+		opacity: 0.45;
+		font-style: italic;
 	}
 	.log {
 		border: 1px solid #232830;

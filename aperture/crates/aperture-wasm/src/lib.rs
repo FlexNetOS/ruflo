@@ -10,10 +10,12 @@
 //! The native build (`cfg(not(target_arch = "wasm32"))`) is a no-op so
 //! `cargo check --workspace` works without the wasm32 target installed.
 
-// `keymap_web` is target-agnostic (pure logic) so its unit tests run under
-// `cargo test`. `shell` and `fetch_bridge` depend on `wasm-bindgen` /
-// `web-sys` and are wasm32-only.
+// `keymap_web`, `shell_routing`, and `shell_renderers` are target-agnostic
+// (pure logic) so their unit tests run under plain `cargo test`. `shell` and
+// `fetch_bridge` depend on `wasm-bindgen` / `web-sys` and are wasm32-only.
 mod keymap_web;
+mod shell_renderers;
+mod shell_routing;
 #[cfg(target_arch = "wasm32")]
 mod fetch_bridge;
 #[cfg(target_arch = "wasm32")]
@@ -21,6 +23,12 @@ mod shell;
 
 #[cfg(target_arch = "wasm32")]
 pub use shell::{start, App};
+
+// Re-export the routing primitives so downstream Rust callers (and our own
+// tests) can build/inspect envelopes without going through `wasm-bindgen`.
+pub use shell_routing::{
+    build_route, envelope_for, local_render, render_inbound, verb_str, Pane, ViewLine,
+};
 
 // `parse_line` is preserved for back-compat with the Phase A scaffold; the
 // SvelteKit host can still call `parse_line(line)` if it does not yet hold an
