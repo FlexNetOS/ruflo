@@ -605,13 +605,35 @@ interface HeadlessBenchmarkTask {
   expectPresent: string[];
 }
 
-class DefaultHeadlessExecutor implements IHeadlessExecutor {
+class DefaultHeadlessExecutor implements IContentAwareExecutor {
+  private contextContent: string | null = null;
+
+  setContext(claudeMdContent: string): void {
+    this.contextContent = claudeMdContent;
+  }
+
   async execute(prompt: string, workDir: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     const { execFile } = await import('node:child_process');
     const { promisify } = await import('node:util');
+    const fs = await import('node:fs/promises');
+    const { join } = await import('node:path');
     const execFileAsync = promisify(execFile);
 
-    // Pass prompt as a direct argument array — no shell interpretation.
+    const claudeMdPath = join(workDir, 'CLAUDE.md');
+    const backupPath = join(workDir, '.CLAUDE.md.ab-backup');
+    let swapped = false;
+
+    if (this.contextContent !== null) {
+      try { await fs.copyFile(claudeMdPath, backupPath); } catch { /* no file to back up */ }
+
+      if (this.contextContent.length > 0) {
+        await fs.writeFile(claudeMdPath, this.contextContent, 'utf-8');
+      } else {
+        await fs.unlink(claudeMdPath).catch(() => {});
+      }
+      swapped = true;
+    }
+
     try {
       const { stdout, stderr } = await execFileAsync(
         'claude',
@@ -621,6 +643,15 @@ class DefaultHeadlessExecutor implements IHeadlessExecutor {
       return { stdout, stderr, exitCode: 0 };
     } catch (error: any) {
       return { stdout: error.stdout ?? '', stderr: error.stderr ?? '', exitCode: error.code ?? 1 };
+    } finally {
+      if (swapped) {
+        try {
+          await fs.copyFile(backupPath, claudeMdPath);
+          await fs.unlink(backupPath);
+        } catch {
+          await fs.unlink(claudeMdPath).catch(() => {});
+        }
+      }
     }
   }
 }
@@ -3099,6 +3130,18 @@ export async function abBenchmark(
   } = options;
 
   const contentAware = isContentAwareExecutor(executor);
+
+  // #1652: a non-content-aware executor reads CLAUDE.md from disk for both
+  // configs, so the delta is architecturally guaranteed to be zero — yet
+  // the verdict implies the user's CLAUDE.md is ineffective. Detect and
+  // abort with a clear, actionable message before spending ~$23 in tokens
+  // on a meaningless run. The default executor IS content-aware, so this
+  // only triggers when callers inject a bare IHeadlessExecutor.
+  if (!contentAware) {
+    throw new Error(
+      'abBenchmark requires a content-aware executor. The provided IHeadlessExecutor lacks `setContext()`, so Config A and Config B will both read the same on-disk CLAUDE.md and the delta is guaranteed to be zero. Either use the DefaultHeadlessExecutor (content-aware as of @claude-flow/guidance@3.0.0-alpha.2) or implement IContentAwareExecutor on your custom executor.',
+    );
+  }
 
   // ── Config A: No control plane ──────────────────────────────────────
   // For content-aware executors, set empty context (simulating no guidance)

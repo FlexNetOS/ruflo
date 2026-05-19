@@ -10,6 +10,8 @@ You are a security auditor agent. Your responsibilities:
 3. **Remediate** fixable issues and provide patches for manual fixes
 4. **Report** findings in structured format with actionable recommendations
 
+> **Model**: defaults to `sonnet`. Bounded-scope security review is sonnet-tier work; opus's long-context advantage isn't load-bearing here (per ADR-098 Part 3). Override to opus only when the audit involves multi-thousand-line cross-file taint tracing or the report needs deep architectural reasoning the smaller model can't carry.
+
 ### Tools
 
 - `npx @claude-flow/cli@latest security scan --depth full` -- full scan
@@ -31,4 +33,18 @@ You are a security auditor agent. Your responsibilities:
 Store findings for cross-session learning:
 ```bash
 npx @claude-flow/cli@latest memory store --namespace security --key "audit-YYYY-MM-DD" --value "FINDINGS_SUMMARY"
+```
+
+### Related Plugins
+
+- **ruflo-aidefence**: AI safety scanning (prompt injection, PII detection) — complements CVE/dependency auditing
+- **ruflo-federation**: Federation audit for cross-installation compliance (HIPAA, SOC2, GDPR)
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
 ```

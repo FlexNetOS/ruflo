@@ -51,10 +51,13 @@ async function fetchNpmStats(packageName: string): Promise<{ downloads: number; 
  * Default plugin store configuration
  */
 /**
- * Live IPFS Registry CID - Updated 2026-01-24
- * This is the current pinned registry on Pinata
+ * Live IPFS Registry CID - Updated 2026-05-11
+ * This is the current pinned registry on Pinata.
+ * 2026-05-11: bumped agentic-qe→3.0.0-alpha.5, gastown-bridge→0.1.4,
+ * legal-contracts/healthcare-clinical/perf-optimizer→3.0.0-alpha.2
+ * (republished to fix #1902/#1903/#1904 install breakage).
  */
-export const LIVE_REGISTRY_CID = 'QmXbfEAaR7D2Ujm4GAkbwcGZQMHqAMpwDoje4583uNP834';
+export const LIVE_REGISTRY_CID = 'QmeXmAdbWVvT84GfDXPD2Vg1HWhiTW2VdZfRLhkS96KkX2';
 
 /**
  * Pre-trained Model Registry CID - Updated 2026-01-24
@@ -231,6 +234,7 @@ export class PluginDiscoveryService {
         { id: 'devops', name: 'DevOps', description: 'CI/CD and deployment plugins', pluginCount: 1 },
         { id: 'integrations', name: 'Integrations', description: 'Third-party integrations', pluginCount: 2 },
         { id: 'agents', name: 'Agents', description: 'Custom agent types', pluginCount: 1 },
+        { id: 'iot', name: 'IoT', description: 'IoT device management and fleet orchestration', pluginCount: 1 },
       ],
       authors: [
         {
@@ -245,10 +249,10 @@ export class PluginDiscoveryService {
       totalPlugins: plugins.length,
       totalDownloads: plugins.reduce((sum, p) => sum + p.downloads, 0),
       totalAuthors: 1,
-      featured: ['@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims', '@claude-flow/teammate-plugin'],
-      trending: ['@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant'],
-      newest: ['@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant'],
-      official: ['@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims'],
+      featured: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims', '@claude-flow/teammate-plugin'],
+      trending: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant'],
+      newest: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant'],
+      official: ['@claude-flow/plugin-iot-cognitum', '@claude-flow/plugin-agent-federation', '@claude-flow/plugin-agentic-qe', '@claude-flow/plugin-prime-radiant', '@claude-flow/security', '@claude-flow/claims'],
       compatibilityMatrix: [
         { pluginId: '@claude-flow/neural', pluginVersion: '3.0.0', claudeFlowVersions: ['3.x'], tested: true },
         { pluginId: '@claude-flow/security', pluginVersion: '3.0.0', claudeFlowVersions: ['3.x'], tested: true },
@@ -592,7 +596,7 @@ export class PluginDiscoveryService {
         name: '@claude-flow/plugin-agentic-qe',
         displayName: 'Agentic Quality Engineering',
         description: 'AI-powered quality engineering with 58 agents that write tests, find bugs, predict defects, scan security, and perform chaos engineering safely.',
-        version: '3.0.0-alpha.3',
+        version: '3.0.0-alpha.5',
         cid: 'bafybeiagenticqeplugin2024',
         size: 285000,
         checksum: 'sha256:agenticqe2024xyz',
@@ -710,7 +714,7 @@ export class PluginDiscoveryService {
         name: '@claude-flow/plugin-healthcare-clinical',
         displayName: 'Healthcare Clinical',
         description: 'HIPAA-compliant clinical workflow automation with patient data protection, medical terminology NLP, and healthcare interoperability standards.',
-        version: '0.1.0',
+        version: '3.0.0-alpha.2',
         cid: 'bafybeihealthcareplugin2024',
         size: 210000,
         checksum: 'sha256:healthcare2024xyz',
@@ -768,7 +772,7 @@ export class PluginDiscoveryService {
         name: '@claude-flow/plugin-legal-contracts',
         displayName: 'Legal Contracts',
         description: 'Attorney-client privilege aware contract analysis with clause extraction, risk identification, and compliance checking.',
-        version: '0.1.0',
+        version: '3.0.0-alpha.2',
         cid: 'bafybeilegalcontractsplugin2024',
         size: 175000,
         checksum: 'sha256:legalcontracts2024xyz',
@@ -856,7 +860,7 @@ export class PluginDiscoveryService {
         name: '@claude-flow/plugin-perf-optimizer',
         displayName: 'Performance Optimizer',
         description: 'AI-powered performance optimization with bottleneck detection, memory profiling, and automated performance tuning.',
-        version: '0.1.0',
+        version: '3.0.0-alpha.2',
         cid: 'bafybeiperfoptimizerplugin2024',
         size: 225000,
         checksum: 'sha256:perfoptimizer2024xyz',
@@ -907,35 +911,6 @@ export class PluginDiscoveryService {
         commands: ['neural coordinate', 'neural emergent-analyze', 'neural collective'],
         permissions: ['memory', 'network'],
         exports: ['NeuralCoordinator', 'EmergentModeler', 'CollectiveIntelligence'],
-        verified: true,
-        trustLevel: 'official',
-      },
-      {
-        id: '@claude-flow/plugin-cognitive-kernel',
-        name: '@claude-flow/plugin-cognitive-kernel',
-        displayName: 'Cognitive Kernel',
-        description: 'Core cognitive processing engine with working memory, attention mechanisms, and meta-cognitive monitoring.',
-        version: '0.1.0',
-        cid: 'bafybeicognitivekernelplugin2024',
-        size: 295000,
-        checksum: 'sha256:cognitivekernel2024xyz',
-        author: officialAuthor,
-        license: 'MIT',
-        categories: ['ai-ml'],
-        tags: ['cognitive', 'kernel', 'attention', 'memory', 'meta-cognition'],
-        keywords: ['cognitive', 'kernel', 'attention'],
-        downloads: 0,
-        rating: 0,
-        ratingCount: 0,
-        lastUpdated: baseTime,
-        createdAt: '2026-01-20T00:00:00Z',
-        minClaudeFlowVersion: '3.0.0',
-        dependencies: [{ name: '@claude-flow/core', version: '^3.0.0' }],
-        type: 'core',
-        hooks: ['cognitive:process', 'cognitive:attend'],
-        commands: ['cognitive process', 'cognitive attend', 'cognitive monitor'],
-        permissions: ['memory'],
-        exports: ['CognitiveProcessor', 'AttentionMechanism', 'MetaCognitiveMonitor'],
         verified: true,
         trustLevel: 'official',
       },
@@ -1003,7 +978,7 @@ export class PluginDiscoveryService {
         name: '@claude-flow/plugin-gastown-bridge',
         displayName: 'Gas Town Bridge',
         description: 'Gas Town orchestrator integration with WASM-accelerated formula parsing, Beads sync, convoy management, and graph analysis (352x faster).',
-        version: '0.1.0',
+        version: '0.1.4',
         cid: 'bafybeigastownbridgeplugin2024',
         size: 485000,
         checksum: 'sha256:gastownbridge2024xyz',
@@ -1030,6 +1005,83 @@ export class PluginDiscoveryService {
           auditor: 'claude-flow-security-team',
           auditDate: '2026-01-24T00:00:00Z',
           auditVersion: '0.1.0',
+          passed: true,
+          issues: [],
+        },
+      },
+      // Agent Federation - Cross-installation agent collaboration
+      {
+        id: '@claude-flow/plugin-agent-federation',
+        name: '@claude-flow/plugin-agent-federation',
+        displayName: 'Agent Federation',
+        description: 'Cross-installation agent federation with zero-trust security, PII-gated data flow, 5-tier trust model, and HIPAA/SOC2/GDPR compliance. The comms layer for multi-agent AI.',
+        version: '1.0.0-alpha.1',
+        cid: 'bafybeifederationplugin2026',
+        size: 520000,
+        checksum: 'sha256:agentfederation2026xyz',
+        author: officialAuthor,
+        license: 'MIT',
+        categories: ['security', 'agents', 'integrations'],
+        tags: ['federation', 'trust', 'pii', 'mtls', 'zero-trust', 'compliance', 'hipaa', 'soc2', 'gdpr'],
+        keywords: ['federation', 'trust', 'security'],
+        downloads: 0,
+        rating: 0,
+        ratingCount: 0,
+        lastUpdated: baseTime,
+        createdAt: '2026-04-29T00:00:00Z',
+        minClaudeFlowVersion: '3.0.0',
+        dependencies: [{ name: '@claude-flow/security', version: '^3.0.0' }],
+        type: 'integration',
+        hooks: ['pre-federation-send', 'post-federation-receive', 'federation-audit', 'federation-trust-change'],
+        commands: ['federation init', 'federation join', 'federation leave', 'federation peers', 'federation status', 'federation audit', 'federation trust', 'federation config'],
+        permissions: ['network', 'memory', 'hooks', 'agents'],
+        exports: ['AgentFederationPlugin', 'PIIPipelineService', 'TrustEvaluator', 'FederationCoordinator', 'AuditService'],
+        verified: true,
+        trustLevel: 'official',
+        securityAudit: {
+          auditor: 'claude-flow-security-team',
+          auditDate: '2026-04-29T00:00:00Z',
+          auditVersion: '1.0.0-alpha.1',
+          passed: true,
+          issues: [],
+        },
+      },
+      // IoT Cognitum - Cognitum Seed device-agent bridge
+      {
+        id: '@claude-flow/plugin-iot-cognitum',
+        name: '@claude-flow/plugin-iot-cognitum',
+        displayName: 'IoT Cognitum',
+        description: 'Cognitum Seed device-agent bridge — treat every Seed as a Ruflo agent with 5-tier trust scoring, Ed25519 witness chains, mesh networking, and fleet management.',
+        version: '1.0.0-alpha.1',
+        cid: 'bafybeiiotcognitumplugin2026',
+        size: 340000,
+        checksum: 'sha256:iotcognitum2026xyz',
+        author: officialAuthor,
+        license: 'MIT',
+        categories: ['integrations', 'agents'],
+        tags: ['iot', 'cognitum', 'seed', 'device', 'fleet', 'mesh', 'trust', 'witness', 'edge'],
+        keywords: ['iot', 'cognitum', 'device', 'fleet'],
+        downloads: 0,
+        rating: 0,
+        ratingCount: 0,
+        lastUpdated: baseTime,
+        createdAt: '2026-04-29T00:00:00Z',
+        minClaudeFlowVersion: '3.0.0',
+        dependencies: [
+          { name: '@claude-flow/shared', version: '^3.0.0' },
+          { name: '@cognitum-one/sdk', version: '^0.2.1' },
+        ],
+        type: 'integration',
+        hooks: ['iot:device-registered', 'iot:trust-change', 'iot:device-offline', 'iot:device-online', 'iot:anomaly-detected', 'iot:mesh-partition', 'iot:firmware-mismatch', 'iot:witness-gap'],
+        commands: ['iot init', 'iot register', 'iot status', 'iot list', 'iot remove', 'iot pair', 'iot unpair', 'iot query', 'iot ingest', 'iot mesh', 'iot witness', 'iot witness verify', 'iot fleet', 'iot fleet create', 'iot fleet list', 'iot fleet add', 'iot fleet remove', 'iot fleet delete', 'iot firmware deploy', 'iot firmware advance', 'iot firmware rollback', 'iot firmware status', 'iot firmware list', 'iot anomalies', 'iot baseline'],
+        permissions: ['network', 'memory', 'hooks'],
+        exports: ['IoTCognitumPlugin', 'IoTCoordinator', 'SeedClientFactory', 'HealthProbeWorker', 'TelemetryIngestWorker', 'AnomalyScanWorker', 'MeshSyncWorker', 'FirmwareWatchWorker', 'WitnessAuditWorker', 'AnomalyDetectionService', 'TelemetryIngestionService', 'FleetTopologyService', 'FirmwareOrchestrationService', 'WitnessVerificationService', 'SONAIntegrationService', 'AgentDBTelemetryRepository'],
+        verified: true,
+        trustLevel: 'official',
+        securityAudit: {
+          auditor: 'claude-flow-security-team',
+          auditDate: '2026-04-29T00:00:00Z',
+          auditVersion: '1.0.0-alpha.1',
           passed: true,
           issues: [],
         },
@@ -1104,11 +1156,14 @@ export class PluginDiscoveryService {
       '@claude-flow/plugin-perf-optimizer',
       // Advanced AI/reasoning plugins
       '@claude-flow/plugin-neural-coordination',
-      '@claude-flow/plugin-cognitive-kernel',
       '@claude-flow/plugin-quantum-optimizer',
       '@claude-flow/plugin-hyperbolic-reasoning',
       // Gas Town Bridge
       '@claude-flow/plugin-gastown-bridge',
+      // Agent Federation
+      '@claude-flow/plugin-agent-federation',
+      // IoT Cognitum
+      '@claude-flow/plugin-iot-cognitum',
     ];
 
     // Fetch stats in parallel

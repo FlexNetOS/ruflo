@@ -17,3 +17,15 @@ Anti-drift rules:
 - Use specialized strategy so roles do not overlap.
 - Run `post-task` hooks after every task completion for learning.
 - Store coordination decisions in memory namespace "swarm".
+
+### Related Plugins
+
+- **ruflo-goals**: GOAP planning for complex multi-session objectives that swarms execute
+- **ruflo-autopilot**: Autonomous /loop execution of swarm-coordinated work
+
+### Neural Learning
+
+After completing a swarm cycle, feed the coordination outcome learning so topology + role choices compound:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+```

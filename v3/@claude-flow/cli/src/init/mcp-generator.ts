@@ -52,10 +52,10 @@ export function generateMCPConfig(options: InitOptions): object {
     npm_config_update_notifier: 'false',
   };
 
-  // Claude Flow MCP server (core)
+  // Ruflo MCP server (core) — uses ruflo wrapper for portable npm-resolved invocation
   if (config.claudeFlow) {
-    mcpServers['claude-flow'] = createMCPServerEntry(
-      ['@claude-flow/cli@latest', 'mcp', 'start'],
+    mcpServers['ruflo'] = createMCPServerEntry(
+      ['ruflo@latest', 'mcp', 'start'],
       {
         ...npmEnv,
         CLAUDE_FLOW_MODE: 'v3',
@@ -106,7 +106,7 @@ export function generateMCPCommands(options: InitOptions): string[] {
 
   if (isWindows()) {
     if (config.claudeFlow) {
-      commands.push('claude mcp add claude-flow -- cmd /c npx -y @claude-flow/cli@latest mcp start');
+      commands.push('claude mcp add ruflo -- cmd /c npx -y ruflo@latest mcp start');
     }
     if (config.ruvSwarm) {
       commands.push('claude mcp add ruv-swarm -- cmd /c npx -y ruv-swarm mcp start');
@@ -116,7 +116,7 @@ export function generateMCPCommands(options: InitOptions): string[] {
     }
   } else {
     if (config.claudeFlow) {
-      commands.push("claude mcp add claude-flow -- npx -y @claude-flow/cli@latest mcp start");
+      commands.push("claude mcp add ruflo -- npx -y ruflo@latest mcp start");
     }
     if (config.ruvSwarm) {
       commands.push("claude mcp add ruv-swarm -- npx -y ruv-swarm mcp start");

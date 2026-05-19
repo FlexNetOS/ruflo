@@ -123,12 +123,18 @@ export class TokenOptimizer extends EventEmitter {
       };
     }
 
-    const memories = await this.reasoningBank.retrieveMemories(query, {
-      limit,
-      threshold,
-    });
-
-    const compactPrompt = this.reasoningBank.formatMemoriesForPrompt(memories);
+    let memories: Array<{ content: string; score: number }>;
+    let compactPrompt: string;
+    try {
+      memories = await this.reasoningBank.retrieveMemories(query, {
+        limit,
+        threshold,
+      });
+      compactPrompt = this.reasoningBank.formatMemoriesForPrompt(memories);
+    } catch {
+      memories = [];
+      compactPrompt = '';
+    }
 
     // Estimate tokens saved based on actual content length difference
     // Rough heuristic: ~4 chars per token, compare full query context vs compact
@@ -198,9 +204,9 @@ export class TokenOptimizer extends EventEmitter {
   } {
     if (!this.configTuning) {
       // Scale defaults based on agent count
-      const batchSize = agentCount <= 4 ? 2 : agentCount <= 8 ? 4 : 6;
+      const batchSize = agentCount <= 4 ? 2 : agentCount <= 8 ? 4 : 5;
       const cacheSizeMB = Math.min(200, 25 * Math.ceil(agentCount / 2));
-      const topology = agentCount <= 6 ? 'hierarchical' : agentCount <= 12 ? 'hierarchical-mesh' : 'mesh';
+      const topology = 'hierarchical';
       return {
         batchSize,
         cacheSizeMB,

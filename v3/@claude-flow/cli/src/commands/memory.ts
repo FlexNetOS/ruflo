@@ -279,12 +279,20 @@ const searchCommand: Command = {
       description: 'Build/rebuild HNSW index before searching (enables 150x-12,500x speedup)',
       type: 'boolean',
       default: false
+    },
+    {
+      name: 'smart',
+      short: 's',
+      description: 'Use SmartRetrieval pipeline (query expansion, RRF, MMR, recency)',
+      type: 'boolean',
+      default: false
     }
   ],
   examples: [
     { command: 'claude-flow memory search -q "authentication patterns"', description: 'Semantic search' },
     { command: 'claude-flow memory search -q "JWT" -t keyword', description: 'Keyword search' },
-    { command: 'claude-flow memory search -q "test" --build-hnsw', description: 'Build HNSW index and search' }
+    { command: 'claude-flow memory search -q "test" --build-hnsw', description: 'Build HNSW index and search' },
+    { command: 'claude-flow memory search -q "auth patterns" --smart', description: 'SmartRetrieval with RRF + MMR' }
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     const query = ctx.flags.query as string || ctx.args[0];
@@ -331,33 +339,104 @@ const searchCommand: Command = {
     // Use direct sql.js search with vector similarity
     try {
       const { searchEntries } = await import('../memory/memory-initializer.js');
+      const useSmart = (ctx.flags.smart || ctx.flags.s) as boolean;
 
-      const searchResult = await searchEntries({
-        query,
-        namespace,
-        limit,
-        threshold
-      });
+      let results: { key: string; score: number; namespace: string; preview: string }[];
+      let searchTimeMs: number;
+      let smartStats: Record<string, unknown> | undefined;
+      let backendLabel = 'HNSW + sql.js';
 
-      if (!searchResult.success) {
-        output.printError(searchResult.error || 'Search failed');
-        return { success: false, exitCode: 1 };
+      // #1846: feature-detect smartSearch — older published builds of
+      // @claude-flow/memory don't expose it. Fall through to plain
+      // semantic search with a one-line warning instead of throwing.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let smartSearchFn: any | undefined;
+      if (useSmart) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const memMod: any = await import('@claude-flow/memory');
+          if (typeof memMod.smartSearch === 'function') {
+            smartSearchFn = memMod.smartSearch;
+          }
+        } catch {
+          /* memory package not loadable */
+        }
+        if (!smartSearchFn) {
+          output.printWarning(
+            'Smart search requested but smartSearch is not available on the installed @claude-flow/memory build (#1846). Falling back to standard semantic search.',
+          );
+        }
       }
 
-      const results = searchResult.results.map(r => ({
-        key: r.key,
-        score: r.score,
-        namespace: r.namespace,
-        preview: r.content
-      }));
+      if (useSmart && smartSearchFn) {
+        // Adapt searchEntries to the SearchFn interface
+        const rawSearch = async (req: { query: string; namespace?: string; limit?: number; threshold?: number }) => {
+          const r = await searchEntries({
+            query: req.query,
+            namespace: req.namespace || namespace,
+            limit: req.limit || limit * 3,
+            threshold: req.threshold ?? threshold,
+          });
+          return {
+            results: r.results.map(e => ({
+              id: e.id,
+              key: e.key,
+              content: e.content,
+              score: e.score,
+              namespace: e.namespace,
+            })),
+          };
+        };
+
+        const smartResult = await smartSearchFn(rawSearch, {
+          query,
+          namespace,
+          limit,
+          threshold,
+        });
+
+        results = smartResult.results.map((r: { content: string; key: string; namespace: string; score: number }) => ({
+          key: r.key,
+          score: r.score,
+          namespace: r.namespace,
+          preview: r.content,
+        }));
+        searchTimeMs = smartResult.stats.durationMs;
+        smartStats = smartResult.stats as unknown as Record<string, unknown>;
+        backendLabel = 'SmartRetrieval (RRF + MMR + Recency)';
+      } else {
+        const searchResult = await searchEntries({
+          query,
+          namespace,
+          limit,
+          threshold
+        });
+
+        if (!searchResult.success) {
+          output.printError(searchResult.error || 'Search failed');
+          return { success: false, exitCode: 1 };
+        }
+
+        results = searchResult.results.map(r => ({
+          key: r.key,
+          score: r.score,
+          namespace: r.namespace,
+          preview: r.content
+        }));
+        searchTimeMs = searchResult.searchTime;
+      }
 
       if (ctx.flags.format === 'json') {
-        output.printJson({ query, searchType, results, searchTime: `${searchResult.searchTime}ms` });
+        output.printJson({ query, searchType, results, searchTime: `${searchTimeMs}ms`, ...(smartStats ? { stats: smartStats } : {}) });
         return { success: true, data: results };
       }
 
       // Performance stats
-      output.writeln(output.dim(`  Search time: ${searchResult.searchTime}ms`));
+      output.writeln(output.dim(`  Search time: ${searchTimeMs}ms`));
+      if (useSmart && smartStats) {
+        output.writeln(output.dim(`  Backend: ${backendLabel}`));
+        output.writeln(output.dim(`  Variants: ${(smartStats as any).variantCount}, Raw candidates: ${(smartStats as any).rawCandidateCount}`));
+      }
       output.writeln();
 
       if (results.length === 0) {
@@ -581,6 +660,7 @@ const statsCommand: Command = {
     try {
       const statsResult = await callMCPTool('memory_stats', {}) as {
         totalEntries: number;
+        entriesWithEmbeddings?: number;
         totalSize: string;
         version: string;
         backend: string;
@@ -641,6 +721,81 @@ const statsCommand: Command = {
           { metric: 'Newest Entry', value: stats.newestEntry || 'N/A' }
         ]
       });
+
+      // #1622 — Surface the active embedding provider in `memory stats` so
+      // users can tell which backend resolved at runtime (the 6-level
+      // fallback chain in loadEmbeddingModel ranges from full ONNX to a
+      // 128-dim hash that has no semantic understanding). Calling
+      // loadEmbeddingModel() is cheap when the model is already cached;
+      // a fresh call still resolves quickly because we only need the
+      // metadata, not a real embedding.
+      try {
+        const { loadEmbeddingModel, getHNSWStatus } = await import('../memory/memory-initializer.js');
+        const embedding = await loadEmbeddingModel({ verbose: false });
+        const hnsw = getHNSWStatus();
+        // Map model name → semantic capability so users can spot the
+        // hash-fallback case without reading docs.
+        const semanticProviders = new Set([
+          'Xenova/all-MiniLM-L6-v2',
+          'Xenova/all-mpnet-base-v2',
+          'Xenova/bge-small-en-v1.5',
+          'agentic-flow',
+          'agentic-flow/reasoningbank',
+          'ruvector/onnx',
+          'cached',
+        ]);
+        const isSemantic = embedding.success && semanticProviders.has(embedding.modelName);
+
+        output.writeln();
+        output.writeln(output.bold('Embedding'));
+        output.printTable({
+          columns: [
+            { key: 'metric', header: 'Metric', width: 20 },
+            { key: 'value', header: 'Value', width: 30, align: 'right' }
+          ],
+          data: [
+            {
+              metric: 'Provider',
+              value: embedding.success
+                ? embedding.modelName
+                : output.warning(`unavailable: ${embedding.error || 'unknown'}`),
+            },
+            { metric: 'Dimensions', value: String(embedding.dimensions) },
+            {
+              metric: 'Semantic Search',
+              value: isSemantic
+                ? output.success('yes')
+                : output.warning('no — using hash fallback'),
+            },
+            {
+              metric: 'HNSW Index',
+              // ruflo#1989 / #1987: `hnsw.entryCount` is in-process JS state
+              // (the live HNSW index of the current Node process). A fresh
+              // `memory stats` invocation has never indexed anything, so it
+              // reports 0 even when the persistent DB has thousands of
+              // entries with embeddings. Use the persistent count from the
+              // MCP tool (`entriesWithEmbeddings`, which is the actual
+              // count of rows that have a vector) as the source of truth.
+              value: (() => {
+                const persisted = typeof statsResult.entriesWithEmbeddings === 'number'
+                  ? statsResult.entriesWithEmbeddings
+                  : null;
+                const live = hnsw.entryCount || 0;
+                const total = persisted !== null ? Math.max(persisted, live) : live;
+                if (!hnsw.available) return output.dim('not active');
+                if (total === 0) return output.warning('available but not initialized');
+                return output.success(`active (${total.toLocaleString()} entries)`);
+              })(),
+            },
+          ]
+        });
+      } catch (e) {
+        // Don't fail the whole stats command if introspection breaks —
+        // the rest of the dashboard is still useful.
+        output.writeln();
+        output.writeln(output.bold('Embedding'));
+        output.printInfo(`Provider info unavailable: ${e instanceof Error ? e.message : String(e)}`);
+      }
 
       output.writeln();
       output.printInfo('V3 Performance: 150x-12,500x faster search with HNSW indexing');
@@ -1277,6 +1432,13 @@ const initMemoryCommand: Command = {
         spinner.fail('Initialization failed');
         output.printError(result.error || 'Unknown error');
         return { success: false, exitCode: 1 };
+      }
+
+      // #1791.6 — DB already initialized and --force not passed: friendly no-op.
+      if (result.alreadyExists) {
+        spinner.succeed(`Memory database already initialized at ${result.dbPath}`);
+        output.printInfo('Use `--force` to reinitialize from scratch (destructive).');
+        return { success: true, exitCode: 0 };
       }
 
       spinner.succeed('Schema initialized');

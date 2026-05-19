@@ -19,3 +19,20 @@ Use these MCP tools:
 - `mcp__claude-flow__github_pr_manage` for PR operations
 
 Flag high-risk changes and always provide actionable review guidance.
+
+### Memory Learning
+
+Store diff analysis patterns and merge strategies:
+```bash
+npx @claude-flow/cli@latest memory store --namespace git-patterns --key "merge-STRATEGY" --value "CONTEXT_AND_OUTCOME"
+npx @claude-flow/cli@latest memory search --query "merge conflict resolution" --namespace git-patterns
+```
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
+```

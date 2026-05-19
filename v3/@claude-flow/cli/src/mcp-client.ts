@@ -35,13 +35,47 @@ import { githubTools } from './mcp-tools/github-tools.js';
 import { daaTools } from './mcp-tools/daa-tools.js';
 import { coordinationTools } from './mcp-tools/coordination-tools.js';
 import { browserTools } from './mcp-tools/browser-tools.js';
+import { browserSessionTools } from './mcp-tools/browser-session-tools.js';
+import { execFileSync } from 'node:child_process';
 // Phase 6: AgentDB v3 controller tools
 import { agentdbTools } from './mcp-tools/agentdb-tools.js';
 // RuVector WASM tools
 import { ruvllmWasmTools } from './mcp-tools/ruvllm-tools.js';
 import { wasmAgentTools } from './mcp-tools/wasm-agent-tools.js';
+// ADR-115: Anthropic Claude Managed Agents — a cloud agent runtime alongside
+// the local WASM-sandboxed `wasm_agent_*` (rvagent) tools. Lives in the
+// `ruflo-agent` plugin.
+import { managedAgentTools } from './mcp-tools/managed-agent-tools.js';
 import { guidanceTools } from './mcp-tools/guidance-tools.js';
 import { autopilotTools } from './mcp-tools/autopilot-tools.js';
+// #1916: coverage-aware routing tools — defined in ruvector/coverage-tools.ts
+// but were never registered, so the `ruflo hooks coverage-*` CLI subcommands
+// failed with `Tool not found: hooks_coverage-route`.
+import { coverageRouterTools } from './ruvector/coverage-tools.js';
+
+// #1605: Only register browser tools if agent-browser is available
+let _browserAvailable: boolean | null = null;
+function getBrowserTools(): MCPTool[] {
+  if (_browserAvailable === null) {
+    try {
+      execFileSync('agent-browser', ['--version'], { stdio: 'ignore', timeout: 3000 });
+      _browserAvailable = true;
+    } catch {
+      _browserAvailable = false;
+    }
+  }
+  return _browserAvailable ? browserTools : [];
+}
+
+/**
+ * Lifecycle MCP tools for ruflo-browser session-as-skill architecture
+ * (ADR-0001 ruflo-browser §7). Always registered: their handlers shell out
+ * to ruvector + agent-browser + claude-flow memory and degrade gracefully
+ * when those CLIs are missing.
+ */
+function getBrowserSessionTools(): MCPTool[] {
+  return browserSessionTools;
+}
 
 /**
  * MCP Tool Registry
@@ -81,16 +115,21 @@ registerTools([
   ...githubTools,
   ...daaTools,
   ...coordinationTools,
-  ...browserTools,
+  ...getBrowserTools(),
+  ...getBrowserSessionTools(),
   // Phase 6: AgentDB v3 controller tools
   ...agentdbTools,
   // RuVector WASM tools
   ...ruvllmWasmTools,
   ...wasmAgentTools,
+  // ADR-115: Anthropic Claude Managed Agents (cloud agent runtime)
+  ...managedAgentTools,
   // Guidance & discovery tools
   ...guidanceTools,
   // Autopilot persistent completion tools
   ...autopilotTools,
+  // #1916: coverage-aware routing (hooks_coverage-route / -suggest / -gaps)
+  ...coverageRouterTools,
 ]);
 
 /**

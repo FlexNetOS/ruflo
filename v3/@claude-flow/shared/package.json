@@ -1,6 +1,6 @@
 {
   "name": "@claude-flow/shared",
-  "version": "3.0.0-alpha.7",
+  "version": "3.0.0-alpha.8",
   "type": "module",
   "description": "Shared module - common types, events, utilities, core interfaces",
   "main": "dist/index.js",
@@ -13,7 +13,8 @@
     "./hooks": "./dist/hooks/index.js",
     "./mcp": "./dist/mcp/index.js",
     "./security": "./dist/security/index.js",
-    "./resilience": "./dist/resilience/index.js"
+    "./resilience": "./dist/resilience/index.js",
+    "./src/plugin-interface.js": "./dist/plugin-interface.js"
   },
   "scripts": {
     "test": "vitest run",

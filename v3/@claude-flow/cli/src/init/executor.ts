@@ -776,6 +776,80 @@ async function writeSettings(
 }
 
 /**
+ * #1779 — Walk parents of `targetDir` plus the user-global Claude Code
+ * config locations, looking for any `.mcp.json` (or `~/.claude.json`)
+ * that already declares a `ruflo`-keyed MCP server. We use this to skip
+ * writing our own `claude-flow`-keyed entry when the user has already
+ * registered the same binary under the new name — that's exactly the
+ * "same MCP server twice under two different prefixes" duplication the
+ * issue describes.
+ *
+ * Returns the path of the file that already declares `ruflo` (so we can
+ * surface it in the skipped-message), or null if none found.
+ */
+function detectExistingRufloMCP(targetDir: string): string | null {
+  const home = (process.env.HOME ?? process.env.USERPROFILE) ?? '';
+  const candidates = new Set<string>();
+  // User-global Claude Code config locations
+  if (home) {
+    candidates.add(path.join(home, '.claude.json'));
+    candidates.add(path.join(home, '.claude', 'mcp.json'));
+  }
+  // Walk parents of targetDir up to root, checking for .mcp.json at each
+  const targetResolved = path.resolve(targetDir);
+  let dir = targetResolved;
+  const targetAncestors = new Set<string>();
+  while (true) {
+    candidates.add(path.join(dir, '.mcp.json'));
+    targetAncestors.add(normalizeProjectKey(dir));
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  // Skip the targetDir itself — that's the one we're about to write
+  candidates.delete(path.join(targetResolved, '.mcp.json'));
+
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, 'utf-8'));
+      if (!parsed || typeof parsed !== 'object') continue;
+      // (a) Top-level mcpServers (legacy / global form)
+      if (parsed.mcpServers && typeof parsed.mcpServers === 'object') {
+        if ('ruflo' in parsed.mcpServers) return candidate;
+      }
+      // (b) #1840: Claude Code project-scoped registrations under
+      //     parsed.projects[<projectPath>].mcpServers.ruflo. Match by
+      //     normalized path against targetDir or any of its ancestors so
+      //     a `claude mcp add ruflo` in this repo is detected even when
+      //     Claude stored the key with different casing/slash style.
+      if (parsed.projects && typeof parsed.projects === 'object') {
+        for (const [projectKey, projectVal] of Object.entries(parsed.projects)) {
+          if (!projectVal || typeof projectVal !== 'object') continue;
+          const projectMcp = (projectVal as { mcpServers?: unknown }).mcpServers;
+          if (!projectMcp || typeof projectMcp !== 'object') continue;
+          if (!('ruflo' in (projectMcp as Record<string, unknown>))) continue;
+          if (targetAncestors.has(normalizeProjectKey(projectKey))) {
+            return `${candidate} (projects[${projectKey}])`;
+          }
+        }
+      }
+    } catch { /* malformed JSON — ignore */ }
+  }
+  return null;
+}
+
+/**
+ * Normalize a project path key for cross-platform comparison.
+ * Claude Code stores Windows paths like "C:/Users/.../Project" while
+ * Node's `path.resolve()` may emit "C:\Users\...\Project". Lowercase +
+ * forward-slash gives a stable comparison key on both platforms.
+ */
+function normalizeProjectKey(p: string): string {
+  return path.resolve(p).replace(/\\/g, '/').toLowerCase();
+}
+
+/**
  * Write .mcp.json
  */
 async function writeMCPConfig(
@@ -788,6 +862,20 @@ async function writeMCPConfig(
   if (fs.existsSync(mcpPath) && !options.force) {
     result.skipped.push('.mcp.json');
     return;
+  }
+
+  // #1779 — Skip writing if the user already has a `ruflo`-keyed MCP
+  // server registered elsewhere (parent .mcp.json, ~/.claude.json, etc).
+  // Writing our `claude-flow`-keyed entry on top of that produces the
+  // duplicate-registration the issue describes (~250 duplicate tools).
+  // Force-mode (`--force`) bypasses this guard for users who actually
+  // want both registrations.
+  if (!options.force) {
+    const existingRufloPath = detectExistingRufloMCP(targetDir);
+    if (existingRufloPath) {
+      result.skipped.push(`.mcp.json (existing 'ruflo' MCP registration found at ${existingRufloPath} — would create duplicate; pass --force to write anyway)`);
+      return;
+    }
   }
 
   const content = generateMCPJson(options);
@@ -1827,9 +1915,11 @@ async function writeClaudeMd(
     result.created.files.push('CLAUDE.md');
   }
 
-  // Also write/append global ~/.claude/CLAUDE.md so ruflo tools are used automatically (#1497)
+  // Also write/append global ~/.claude/CLAUDE.md so ruflo tools are used automatically (#1497).
+  // Opt-out via --no-global / options.skipGlobalClaudeMd (#1744 — keeps global rules file pristine
+  // for users who don't want a per-machine pointer block).
   const homeDir = process.env.HOME || process.env.USERPROFILE || '';
-  if (homeDir) {
+  if (homeDir && !options.skipGlobalClaudeMd) {
     const globalClaudeDir = path.join(homeDir, '.claude');
     const globalClaudeMd = path.join(globalClaudeDir, 'CLAUDE.md');
     const rufloBlock = [
@@ -1858,6 +1948,8 @@ async function writeClaudeMd(
     } catch {
       // Non-critical — global CLAUDE.md is best-effort
     }
+  } else if (options.skipGlobalClaudeMd) {
+    result.skipped.push('~/.claude/CLAUDE.md (--no-global)');
   }
 }
 

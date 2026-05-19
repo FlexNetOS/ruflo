@@ -5,6 +5,7 @@
  * Provides browser automation tools for web navigation, interaction, and data extraction.
  */
 
+import { readFileSync, existsSync } from 'node:fs';
 import type { MCPTool, MCPToolResult } from './types.js';
 import { validateIdentifier, validateText } from './validate-input.js';
 
@@ -16,49 +17,95 @@ const browserSessions = new Map<string, {
 }>();
 
 /**
- * Execute agent-browser CLI command
+ * Execute agent-browser CLI command.
+ * Tries global agent-browser first, falls back to npx if ENOENT.
  */
 async function execBrowserCommand(args: string[], session = 'default'): Promise<MCPToolResult> {
   const { execFileSync } = await import('child_process');
+  const fullArgs = ['--session', session, '--json', ...args];
 
+  let result: string;
   try {
-    const fullArgs = ['--session', session, '--json', ...args];
-    const result = execFileSync('agent-browser', fullArgs, {
+    result = execFileSync('agent-browser', fullArgs, {
       encoding: 'utf-8',
       timeout: 30000,
     });
-
-    let data;
-    try {
-      data = JSON.parse(result);
-    } catch {
-      data = result.trim();
-    }
-
-    // Update session activity
-    const sessionInfo = browserSessions.get(session);
-    if (sessionInfo) {
-      sessionInfo.lastActivity = new Date().toISOString();
-    }
-
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify(data, null, 2),
-      }],
-    };
   } catch (error) {
-    return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      }],
-      isError: true,
-    };
+    const err = error as NodeJS.ErrnoException;
+    if (err.code === 'ENOENT') {
+      try {
+        result = execFileSync('npx', ['--yes', 'agent-browser', ...fullArgs], {
+          encoding: 'utf-8',
+          timeout: 60000,
+        });
+      } catch (npxError) {
+        const npxErr = npxError as NodeJS.ErrnoException;
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: false,
+              error: npxErr.code === 'ENOENT'
+                ? 'Neither agent-browser nor npx found. Install with: npm i -g agent-browser'
+                : npxErr instanceof Error ? npxErr.message : String(npxError),
+            }),
+          }],
+          isError: true,
+        };
+      }
+    } else {
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify({
+            success: false,
+            error: err instanceof Error ? err.message : String(error),
+          }),
+        }],
+        isError: true,
+      };
+    }
   }
+
+  let data;
+  try {
+    data = JSON.parse(result);
+  } catch {
+    data = result.trim();
+  }
+
+  const sessionInfo = browserSessions.get(session);
+  if (sessionInfo) {
+    sessionInfo.lastActivity = new Date().toISOString();
+  }
+
+  return {
+    content: [{
+      type: 'text',
+      text: JSON.stringify(data, null, 2),
+    }],
+  };
+}
+
+/**
+ * Read a sysctl value, returning the trimmed string or null.
+ */
+function readSysctl(name: string): string | null {
+  try {
+    const p = `/proc/sys/kernel/${name}`;
+    if (existsSync(p)) return readFileSync(p, 'utf-8').trim();
+  } catch { /* not Linux or can't read */ }
+  return null;
+}
+
+/**
+ * Detect if Linux needs --no-sandbox for Chrome.
+ * Checks both legacy userns flag and Ubuntu 24.04+ AppArmor restriction.
+ */
+function needsNoSandbox(): boolean {
+  if (process.platform !== 'linux') return false;
+  return readSysctl('unprivileged_userns_clone') === '0' ||
+    readSysctl('apparmor_restrict_unprivileged_userns') === '1';
 }
 
 /**
@@ -70,7 +117,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_open',
-    description: 'Navigate browser to a URL',
+    description: 'Navigate browser to a URL Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['navigation', 'web'],
     inputSchema: {
@@ -82,6 +129,11 @@ export const browserTools: MCPTool[] = [
           type: 'string',
           enum: ['load', 'domcontentloaded', 'networkidle'],
           description: 'Wait condition',
+        },
+        args: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Additional Chrome launch args (e.g., ["--no-sandbox", "--disable-dev-shm-usage"])',
         },
       },
       required: ['url'],
@@ -95,8 +147,13 @@ export const browserTools: MCPTool[] = [
         session?: string;
         waitUntil?: string;
       };
+      const launchArgs = (input.args as string[] | undefined) || [];
+      if (needsNoSandbox() && !launchArgs.includes('--no-sandbox')) {
+        launchArgs.push('--no-sandbox');
+      }
       const args = ['open', url];
       if (waitUntil) args.push('--wait-until', waitUntil);
+      if (launchArgs.length > 0) args.push('--args', launchArgs.join(','));
 
       // Create session if new
       const sessionId = session || 'default';
@@ -113,7 +170,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_back',
-    description: 'Navigate back in browser history',
+    description: 'Navigate back in browser history Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['navigation'],
     inputSchema: {
@@ -129,7 +186,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_forward',
-    description: 'Navigate forward in browser history',
+    description: 'Navigate forward in browser history Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['navigation'],
     inputSchema: {
@@ -145,7 +202,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_reload',
-    description: 'Reload the current page',
+    description: 'Reload the current page Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['navigation'],
     inputSchema: {
@@ -161,7 +218,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_close',
-    description: 'Close the browser session',
+    description: 'Close the browser session Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['navigation'],
     inputSchema: {
@@ -183,7 +240,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_snapshot',
-    description: 'Get AI-optimized accessibility tree snapshot with element refs (@e1, @e2, etc.)',
+    description: 'Get AI-optimized accessibility tree snapshot with element refs (@e1, @e2, etc.) Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['snapshot', 'ai'],
     inputSchema: {
@@ -216,7 +273,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_screenshot',
-    description: 'Capture screenshot of the page',
+    description: 'Capture screenshot of the page Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['snapshot', 'screenshot'],
     inputSchema: {
@@ -247,7 +304,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_click',
-    description: 'Click an element using ref (@e1) or CSS selector',
+    description: 'Click an element using ref (@e1) or CSS selector Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction'],
     inputSchema: {
@@ -278,7 +335,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_fill',
-    description: 'Clear and fill an input element',
+    description: 'Clear and fill an input element Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction', 'form'],
     inputSchema: {
@@ -306,7 +363,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_type',
-    description: 'Type text with key events (for autocomplete, etc.)',
+    description: 'Type text with key events (for autocomplete, etc.) Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction', 'form'],
     inputSchema: {
@@ -338,7 +395,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_press',
-    description: 'Press a keyboard key',
+    description: 'Press a keyboard key Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction'],
     inputSchema: {
@@ -359,13 +416,13 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_hover',
-    description: 'Hover over an element',
+    description: 'Hover over an element using ref (@e1) or CSS selector Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction'],
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', description: 'Element ref or CSS selector' },
+        target: { type: 'string', description: 'Element ref (@e1) or CSS selector' },
         session: { type: 'string', description: 'Session ID' },
       },
       required: ['target'],
@@ -380,7 +437,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_select',
-    description: 'Select an option from a dropdown',
+    description: 'Select an option from a dropdown Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction', 'form'],
     inputSchema: {
@@ -408,7 +465,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_check',
-    description: 'Check a checkbox',
+    description: 'Check a checkbox Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction', 'form'],
     inputSchema: {
@@ -429,7 +486,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_uncheck',
-    description: 'Uncheck a checkbox',
+    description: 'Uncheck a checkbox Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction', 'form'],
     inputSchema: {
@@ -450,7 +507,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_scroll',
-    description: 'Scroll the page',
+    description: 'Scroll the page Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['interaction'],
     inputSchema: {
@@ -479,7 +536,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_get-text',
-    description: 'Get text content of an element',
+    description: 'Get text content of an element Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['info'],
     inputSchema: {
@@ -500,7 +557,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_get-value',
-    description: 'Get value of an input element',
+    description: 'Get value of an input element Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['info', 'form'],
     inputSchema: {
@@ -521,7 +578,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_get-title',
-    description: 'Get the page title',
+    description: 'Get the page title Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['info'],
     inputSchema: {
@@ -537,7 +594,7 @@ export const browserTools: MCPTool[] = [
   },
   {
     name: 'browser_get-url',
-    description: 'Get the current URL',
+    description: 'Get the current URL Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['info'],
     inputSchema: {
@@ -557,7 +614,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_wait',
-    description: 'Wait for a condition',
+    description: 'Wait for a condition Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['wait'],
     inputSchema: {
@@ -596,7 +653,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_eval',
-    description: 'Execute JavaScript in page context',
+    description: 'Execute JavaScript in page context Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['eval', 'js'],
     inputSchema: {
@@ -621,7 +678,7 @@ export const browserTools: MCPTool[] = [
   // ==========================================================================
   {
     name: 'browser_session-list',
-    description: 'List active browser sessions',
+    description: 'List active browser sessions Use when native WebFetch is wrong because you need real browser automation — JS-heavy SPA scraping, login flows with cookie reuse, replay against DOM-drifted versions, AIDefence PII gating before content reaches Claude. For static HTML pages, native WebFetch is faster and free.',
     category: 'browser',
     tags: ['session'],
     inputSchema: {

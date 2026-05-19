@@ -21,3 +21,20 @@ Key rules:
 - All SKILL.md files must have `allowed-tools` listing the MCP tools they use
 
 Test with: `claude --plugin-dir ./plugins/<name>`
+
+### Memory Learning
+
+Store successful plugin patterns for template improvement:
+```bash
+npx @claude-flow/cli@latest memory store --namespace plugin-patterns --key "plugin-TYPE" --value "STRUCTURE_AND_CONFIG"
+npx @claude-flow/cli@latest memory search --query "plugin scaffold for TYPE" --namespace plugin-patterns
+```
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
+```

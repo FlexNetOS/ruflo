@@ -56,3 +56,12 @@ Memory namespaces:
 - `horizons` — active horizon definitions and current state
 - `horizon-sessions` — per-session summaries keyed by `[horizon]-[date]`
 - `horizon-learnings` — patterns and insights from the horizon
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
+```

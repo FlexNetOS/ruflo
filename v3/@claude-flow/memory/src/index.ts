@@ -205,6 +205,18 @@ export { MemoryMigrator, createMigrator, migrateMultipleSources } from './migrat
 export { createDatabase, getPlatformInfo, getAvailableProviders } from './database-provider.js';
 export type { DatabaseProvider, DatabaseOptions } from './database-provider.js';
 
+// ===== Smart Retrieval (ADR-090) =====
+export { smartSearch, defaultQueryExpansions } from './smart-retrieval.js';
+export type {
+  SearchCandidate,
+  RawSearchRequest,
+  RawSearchResponse,
+  SearchFn,
+  SmartSearchOptions,
+  SmartSearchStats,
+  SmartSearchResult,
+} from './smart-retrieval.js';
+
 // ===== Unified Memory Service =====
 import { EventEmitter } from 'node:events';
 import {

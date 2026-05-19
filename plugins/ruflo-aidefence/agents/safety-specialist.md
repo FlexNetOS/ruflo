@@ -19,3 +19,25 @@ Use these MCP tools:
 - `mcp__claude-flow__aidefence_stats` for metrics
 
 Always err on the side of caution — flag uncertain content for human review.
+
+### Memory Learning
+
+Store detected threat patterns for cross-session learning:
+```bash
+npx @claude-flow/cli@latest memory store --namespace security-patterns --key "threat-TYPE" --value "PATTERN_DATA"
+npx @claude-flow/cli@latest memory search --query "similar threats" --namespace security-patterns
+```
+
+### Related Plugins
+
+- **ruflo-security-audit**: CVE scanning and dependency vulnerability checks — complements AI safety scanning
+- **ruflo-federation**: Zero-trust federation security for multi-installation coordination
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
+```

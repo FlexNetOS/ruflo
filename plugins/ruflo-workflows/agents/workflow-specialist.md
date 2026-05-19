@@ -20,3 +20,20 @@ Use these MCP tools:
 - `mcp__claude-flow__workflow_template` for templates
 
 Design workflows with clear failure paths and approval gates for critical steps.
+
+### Memory Learning
+
+Store successful workflow templates and execution patterns:
+```bash
+npx @claude-flow/cli@latest memory store --namespace workflow-patterns --key "workflow-NAME" --value "TEMPLATE_AND_METRICS"
+npx @claude-flow/cli@latest memory search --query "workflow for TASK_TYPE" --namespace workflow-patterns
+```
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
+```

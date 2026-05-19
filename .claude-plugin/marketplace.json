@@ -72,9 +72,9 @@
       "description": "Advanced git workflows with diff analysis, risk scoring, and reviewer recommendations"
     },
     {
-      "name": "ruflo-wasm",
-      "source": "./plugins/ruflo-wasm",
-      "description": "Sandboxed WASM agent creation, execution, and gallery sharing"
+      "name": "ruflo-agent",
+      "source": "./plugins/ruflo-agent",
+      "description": "Agent runtimes — local WASM-sandboxed agents (rvagent) + Anthropic Claude Managed Agents (cloud); one interface, local-vs-cloud backends"
     },
     {
       "name": "ruflo-workflows",
@@ -105,6 +105,66 @@
       "name": "ruflo-goals",
       "source": "./plugins/ruflo-goals",
       "description": "Long-horizon goal planning, deep research orchestration, and adaptive replanning using GOAP"
+    },
+    {
+      "name": "ruflo-adr",
+      "source": "./plugins/ruflo-adr",
+      "description": "ADR lifecycle management — create, index, supersede, and link Architecture Decision Records to code"
+    },
+    {
+      "name": "ruflo-cost-tracker",
+      "source": "./plugins/ruflo-cost-tracker",
+      "description": "Token usage tracking, model cost attribution per agent, budget alerts, and optimization recommendations"
+    },
+    {
+      "name": "ruflo-ddd",
+      "source": "./plugins/ruflo-ddd",
+      "description": "Domain-Driven Design scaffolding — bounded contexts, aggregate roots, domain events, and anti-corruption layers"
+    },
+    {
+      "name": "ruflo-federation",
+      "source": "./plugins/ruflo-federation",
+      "description": "Cross-installation agent federation with zero-trust security, PII-gated data flow, and compliance-grade audit trails"
+    },
+    {
+      "name": "ruflo-iot-cognitum",
+      "source": "./plugins/ruflo-iot-cognitum",
+      "description": "IoT device lifecycle, telemetry anomaly detection, fleet management, and witness chain verification for Cognitum Seed hardware"
+    },
+    {
+      "name": "ruflo-knowledge-graph",
+      "source": "./plugins/ruflo-knowledge-graph",
+      "description": "Knowledge graph construction — entity extraction, relation mapping, and pathfinder graph traversal"
+    },
+    {
+      "name": "ruflo-market-data",
+      "source": "./plugins/ruflo-market-data",
+      "description": "Market data ingestion — feed normalization, OHLCV vectorization, and HNSW-indexed pattern matching"
+    },
+    {
+      "name": "ruflo-migrations",
+      "source": "./plugins/ruflo-migrations",
+      "description": "Schema migration management — generate, validate, dry-run, and rollback database migrations"
+    },
+    {
+      "name": "ruflo-neural-trader",
+      "source": "./plugins/ruflo-neural-trader",
+      "description": "Neural trading strategies — self-learning LSTM/Transformer/N-BEATS models with Rust/NAPI backtesting"
+    },
+    {
+      "name": "ruflo-observability",
+      "source": "./plugins/ruflo-observability",
+      "description": "Structured logging, distributed tracing, and metrics — correlate agent swarm activity with application telemetry"
+    },
+    {
+      "name": "ruflo-ruvector",
+      "source": "./plugins/ruflo-ruvector",
+      "description": "Self-learning vector database — HNSW, FlashAttention-3, Graph RAG, hybrid search, DiskANN, and Brain AGI"
+    },
+    {
+      "name": "ruflo-sparc",
+      "source": "./plugins/ruflo-sparc",
+      "description": "SPARC methodology — Specification, Pseudocode, Architecture, Refinement, Completion phases with quality gates"
     }
   ]
 }

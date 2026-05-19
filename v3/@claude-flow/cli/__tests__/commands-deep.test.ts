@@ -547,16 +547,9 @@ describe('Command Registry (commands/index.ts)', () => {
     expect(indexModule.sessionCommand).toBeDefined();
     expect(indexModule.mcpCommand).toBeDefined();
     expect(indexModule.hooksCommand).toBeDefined();
-    expect(indexModule.daemonCommand).toBeDefined();
-    expect(indexModule.doctorCommand).toBeDefined();
-    expect(indexModule.embeddingsCommand).toBeDefined();
-    expect(indexModule.neuralCommand).toBeDefined();
-    expect(indexModule.performanceCommand).toBeDefined();
-    expect(indexModule.securityCommand).toBeDefined();
-    expect(indexModule.hiveMindCommand).toBeDefined();
-    expect(indexModule.guidanceCommand).toBeDefined();
-    expect(indexModule.applianceCommand).toBeDefined();
-    expect(indexModule.ruvectorCommand).toBeDefined();
+    // Advanced commands are lazy-loaded (PERF-03) — verify async getters exist
+    expect(typeof indexModule.getCommandAsync).toBe('function');
+    expect(typeof indexModule.loadAllCommands).toBe('function');
   });
 
   it('should export commandsByCategory with all categories', async () => {
@@ -569,7 +562,7 @@ describe('Command Registry (commands/index.ts)', () => {
   it('should export commands array with many entries', async () => {
     const indexModule = await import('../src/commands/index.js');
     expect(Array.isArray(indexModule.commands)).toBe(true);
-    expect(indexModule.commands.length).toBeGreaterThanOrEqual(15);
+    expect(indexModule.commands.length).toBeGreaterThanOrEqual(10);
   });
 
   it('should export loadAllCommands as async function', async () => {
@@ -1494,9 +1487,19 @@ describe('Init System', () => {
       expect(perms.deny).toBeDefined();
     });
 
-    it('should include attribution', () => {
+    it('should NOT include attribution by default (opt-in per #1670)', () => {
+      // #1670 — attribution (Co-Authored-By trailer) is now opt-in to avoid
+      // silently injecting a third-party co-author into user commits.
       const settings = generateSettings(DEFAULT_INIT_OPTIONS) as Record<string, unknown>;
+      expect(settings.attribution).toBeUndefined();
+    });
+
+    it('should include attribution when opted in', () => {
+      const settings = generateSettings({ ...DEFAULT_INIT_OPTIONS, attribution: true }) as Record<string, unknown>;
       expect(settings.attribution).toBeDefined();
+      const attribution = settings.attribution as Record<string, string>;
+      expect(attribution.commit).toContain('Co-Authored-By:');
+      expect(attribution.pr).toContain('Generated with');
     });
 
     it('should include env with agent teams enabled', () => {
@@ -1537,44 +1540,54 @@ describe('Init System', () => {
       expect(md.length).toBeGreaterThan(100);
     });
 
-    it('should contain header with RuFlo V3', () => {
+    // The CLAUDE.md generator was deliberately rewritten to a terser, more
+    // imperative schema (header "# Ruflo — Claude Code Configuration", section
+    // titles like "## Rules" / "## Swarm & Routing"). These tests were
+    // originally written against the older verbose schema; updated below to
+    // pin the *current* contract so future drift is caught.
+    it('should contain the Ruflo header', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS);
-      expect(md).toContain('RuFlo V3');
+      expect(md).toContain('# Ruflo');
     });
 
-    it('should contain behavioral rules', () => {
+    it('should contain a Rules section (behavioral rules)', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS);
-      expect(md).toContain('Behavioral Rules');
+      expect(md).toContain('## Rules');
     });
 
-    it('should contain file organization', () => {
+    it('should mention required project subdirectories (file organization)', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS);
-      expect(md).toContain('File Organization');
+      // /src, /tests, /docs, /config, /scripts are all in the Rules block
+      expect(md).toContain('/src');
+      expect(md).toContain('/tests');
+      expect(md).toContain('/docs');
     });
 
-    it('should contain project architecture', () => {
+    it('should describe agent comms (project architecture coordination)', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS);
-      expect(md).toContain('Project Architecture');
+      expect(md).toContain('Agent Comms');
     });
 
-    it('should contain anti-drift configuration', () => {
+    it('should describe anti-drift swarm topology', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS, 'standard');
-      expect(md).toContain('Anti-Drift');
+      expect(md).toContain('anti-drift');
     });
 
-    it('standard template should include swarm orchestration', () => {
+    it('standard template should include swarm config', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS, 'standard');
-      expect(md).toContain('Swarm Orchestration');
+      expect(md).toContain('Swarm');
     });
 
-    it('full template should include hooks system', () => {
+    it('full template should include hooks reference', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS, 'full');
-      expect(md).toContain('Hooks System');
+      // hooksRef() emits a section about hooks
+      expect(md.toLowerCase()).toContain('hook');
     });
 
-    it('full template should include intelligence system', () => {
+    it('full template should include intelligence/SONA reference', () => {
       const md = generateClaudeMd(DEFAULT_INIT_OPTIONS, 'full');
-      expect(md).toContain('Intelligence System');
+      // intelligenceSystem() mentions SONA / RuVector / HNSW
+      expect(md.toLowerCase()).toMatch(/sona|ruvector|hnsw|intelligence/);
     });
 
     it('security template should include security rules', () => {

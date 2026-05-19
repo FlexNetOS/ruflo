@@ -11,6 +11,64 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { readFileMaybeEncrypted, writeFileRestricted } from '../fs-secure.js';
+
+/**
+ * #1854: previously every site that needed the memory directory hardcoded
+ * `getMemoryRoot()`, so the documented config entry
+ * points (`memory.persistPath` config field, `memory configure --path`,
+ * `CLAUDE_FLOW_MEMORY_PATH` env var) all silently no-op'd. This helper
+ * is the single source of truth — every `.swarm/memory.db` resolution in
+ * this file flows through it.
+ *
+ * Precedence (highest → lowest):
+ *   1. CLAUDE_FLOW_MEMORY_PATH env var
+ *   2. memory.persistPath / memory.path in claude-flow.config.json (cwd or
+ *      the directory the CLI was invoked from)
+ *   3. Default: cwd/.swarm
+ *
+ * Cached per-process so repeated lookups are cheap; reset only by spawning
+ * a fresh process (which is how config changes already propagate).
+ */
+let _memoryRootCache: string | undefined;
+export function getMemoryRoot(): string {
+  if (_memoryRootCache !== undefined) return _memoryRootCache;
+
+  // 1. Env var
+  const envPath = process.env.CLAUDE_FLOW_MEMORY_PATH;
+  if (envPath && envPath.trim().length > 0) {
+    _memoryRootCache = path.resolve(envPath);
+    return _memoryRootCache;
+  }
+
+  // 2. Config file (claude-flow.config.json)
+  const configCandidates = [
+    path.resolve(process.cwd(), 'claude-flow.config.json'),
+    path.resolve(process.cwd(), '.claude-flow', 'config.json'),
+  ];
+  for (const configPath of configCandidates) {
+    if (!fs.existsSync(configPath)) continue;
+    try {
+      const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      const fromConfig: unknown = raw?.memory?.persistPath ?? raw?.memory?.path;
+      if (typeof fromConfig === 'string' && fromConfig.trim().length > 0) {
+        _memoryRootCache = path.resolve(fromConfig);
+        return _memoryRootCache;
+      }
+    } catch {
+      /* malformed config — fall through to default */
+    }
+  }
+
+  // 3. Default
+  _memoryRootCache = path.resolve(process.cwd(), '.swarm');
+  return _memoryRootCache;
+}
+
+/** For tests + the `memory configure` flow that mutates the config at runtime. */
+export function _resetMemoryRootCache(): void {
+  _memoryRootCache = undefined;
+}
 
 // ADR-053: Lazy import of AgentDB v3 bridge
 let _bridge: typeof import('./memory-bridge.js') | null | undefined;
@@ -389,7 +447,7 @@ export async function getHNSWIndex(options?: {
     const { VectorDb } = ruvectorCore;
 
     // Persistent storage paths — resolve to absolute to survive CWD changes
-    const swarmDir = path.resolve(process.cwd(), '.swarm');
+    const swarmDir = getMemoryRoot();
     if (!fs.existsSync(swarmDir)) {
       fs.mkdirSync(swarmDir, { recursive: true });
     }
@@ -439,7 +497,7 @@ export async function getHNSWIndex(options?: {
       try {
         const initSqlJs = (await import('sql.js')).default;
         const SQL = await initSqlJs();
-        const fileBuffer = fs.readFileSync(dbPath);
+        const fileBuffer = readFileMaybeEncrypted(dbPath, null);
         const sqlDb = new SQL.Database(fileBuffer);
 
         // Load all entries with embeddings
@@ -498,7 +556,7 @@ function saveHNSWMetadata(): void {
   if (!hnswIndex?.entries) return;
 
   try {
-    const swarmDir = path.join(process.cwd(), '.swarm');
+    const swarmDir = getMemoryRoot();
     const metadataPath = path.join(swarmDir, 'hnsw.metadata.json');
     const metadata = Array.from(hnswIndex.entries.entries());
     fs.writeFileSync(metadataPath, JSON.stringify(metadata));
@@ -927,10 +985,13 @@ INSERT OR REPLACE INTO metadata (key, value) VALUES
   ('temporal_decay', 'enabled'),
   ('hnsw_indexing', 'enabled');
 
--- Create default vector index configuration
+-- Create default vector index configuration. Dimension matches the default
+-- ONNX embedding model (Xenova/all-MiniLM-L6-v2, 384-dim); HNSW rejects
+-- inserts whose dim does not match this row, so a 768 here breaks every
+-- memory_store --vector and memory_search on a fresh install (#1947).
 INSERT OR IGNORE INTO vector_indexes (id, name, dimensions) VALUES
-  ('default', 'default', 768),
-  ('patterns', 'patterns', 768);
+  ('default', 'default', 384),
+  ('patterns', 'patterns', 384);
 `;
 }
 
@@ -939,6 +1000,11 @@ INSERT OR IGNORE INTO vector_indexes (id, name, dimensions) VALUES
  */
 export interface MemoryInitResult {
   success: boolean;
+  /**
+   * #1791.6 — set when an existing database was found and `force` was not
+   * passed. The call is treated as a successful no-op rather than an error.
+   */
+  alreadyExists?: boolean;
   backend: string;
   dbPath: string;
   schemaVersion: string;
@@ -979,7 +1045,7 @@ export async function ensureSchemaColumns(dbPath: string): Promise<{
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
 
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     // Get current columns in memory_entries
@@ -1021,7 +1087,7 @@ export async function ensureSchemaColumns(dbPath: string): Promise<{
     if (modified) {
       // Save updated database
       const data = db.export();
-      fs.writeFileSync(dbPath, Buffer.from(data));
+      writeFileRestricted(dbPath, Buffer.from(data), { encrypt: true });
     }
 
     db.close();
@@ -1166,7 +1232,7 @@ export async function initializeMemoryDatabase(options: {
     migrate = true
   } = options;
 
-  const swarmDir = path.join(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const dbPath = customPath || path.join(swarmDir, 'memory.db');
   const dbDir = path.dirname(dbPath);
 
@@ -1185,9 +1251,16 @@ export async function initializeMemoryDatabase(options: {
     }
 
     // Check existing database
+    // #1791.6 — Idempotent re-init: if the database already exists and the
+    // caller did not pass --force, treat it as a successful no-op instead of
+    // an error. Callers (CLI, MCP tools, embeddings) can branch on
+    // `alreadyExists` if they want a different message; previous behavior
+    // surfaced an `[ERROR]` and a "Initialization failed" spinner even when
+    // the existing DB was perfectly healthy.
     if (fs.existsSync(dbPath) && !force) {
       return {
-        success: false,
+        success: true,
+        alreadyExists: true,
         backend,
         dbPath,
         schemaVersion: '3.0.0',
@@ -1199,8 +1272,7 @@ export async function initializeMemoryDatabase(options: {
           temporalDecay: false,
           hnswIndexing: false,
           migrationTracking: false
-        },
-        error: 'Database already exists. Use --force to reinitialize.'
+        }
       };
     }
 
@@ -1237,7 +1309,7 @@ export async function initializeMemoryDatabase(options: {
       // Save to file
       const data = db.export();
       const buffer = Buffer.from(data);
-      fs.writeFileSync(dbPath, buffer);
+      writeFileRestricted(dbPath, buffer, { encrypt: true });
 
       // Close database
       db.close();
@@ -1308,7 +1380,7 @@ export async function initializeMemoryDatabase(options: {
       sqliteHeader[26] = 0x20; // min embedded payload
       sqliteHeader[27] = 0x20; // leaf payload
 
-      fs.writeFileSync(dbPath, sqliteHeader);
+      writeFileRestricted(dbPath, sqliteHeader, { encrypt: true });
 
       // ADR-053: Activate ControllerRegistry even on fallback path
       const controllerResult = await activateControllerRegistry(dbPath, verbose);
@@ -1374,7 +1446,7 @@ export async function checkMemoryInitialization(dbPath?: string): Promise<{
   };
   tables?: string[];
 }> {
-  const swarmDir = path.join(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const path_ = dbPath || path.join(swarmDir, 'memory.db');
 
   if (!fs.existsSync(path_)) {
@@ -1434,7 +1506,7 @@ export async function applyTemporalDecay(dbPath?: string): Promise<{
   patternsDecayed: number;
   error?: string;
 }> {
-  const swarmDir = path.join(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const path_ = dbPath || path.join(swarmDir, 'memory.db');
 
   try {
@@ -1535,17 +1607,37 @@ export async function loadEmbeddingModel(options?: {
   }
 
   try {
-    // Try to import @xenova/transformers for ONNX embeddings
-    const transformers = await import('@xenova/transformers').catch(() => null);
+    // ADR-094: prefer @huggingface/transformers (clears protobufjs <7.5.5
+    // critical RCE chain), fall back to legacy @xenova/transformers.
+    // Inlined here rather than depending on @claude-flow/embeddings to
+    // avoid a circular optional-dep at install time; the logic mirrors
+    // @claude-flow/embeddings/src/transformers-loader.ts.
+    let transformersSource: '@huggingface/transformers' | '@xenova/transformers' | null = null;
+    let pipelineFn: ((task: string, model?: string) => Promise<unknown>) | null = null;
 
-    if (transformers) {
-      if (verbose) {
-        console.log('Loading ONNX embedding model (all-MiniLM-L6-v2)...');
+    {
+      const tryLoad = async (specifier: string): Promise<Record<string, unknown> | null> => {
+        try { return (await import(specifier)) as Record<string, unknown>; }
+        catch { return null; }
+      };
+      const hf = await tryLoad('@huggingface/transformers');
+      if (hf && typeof hf.pipeline === 'function') {
+        pipelineFn = hf.pipeline as (t: string, m?: string) => Promise<unknown>;
+        transformersSource = '@huggingface/transformers';
+      } else {
+        const xen = await tryLoad('@xenova/transformers');
+        if (xen && typeof xen.pipeline === 'function') {
+          pipelineFn = xen.pipeline as (t: string, m?: string) => Promise<unknown>;
+          transformersSource = '@xenova/transformers';
+        }
       }
+    }
 
-      // Use small, fast model for local embeddings
-      const { pipeline } = transformers;
-      const embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    if (pipelineFn && transformersSource) {
+      if (verbose) {
+        console.log(`Loading ONNX embedding model via ${transformersSource} (all-MiniLM-L6-v2)...`);
+      }
+      const embedder = await pipelineFn('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
 
       embeddingModelState = {
         loaded: true,
@@ -1847,7 +1939,7 @@ export async function verifyMemoryInit(dbPath: string, options?: {
     const fs = await import('fs');
 
     // Load database
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     // Test 1: Schema verification
@@ -1992,7 +2084,7 @@ export async function verifyMemoryInit(dbPath: string, options?: {
 
     // Save changes
     const data = db.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
+    writeFileRestricted(dbPath, Buffer.from(data), { encrypt: true });
     db.close();
 
     const passed = tests.filter(t => t.passed).length;
@@ -2070,7 +2162,7 @@ export async function storeEntry(options: {
     upsert = false
   } = options;
 
-  const swarmDir = path.resolve(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const dbPath = customPath ? path.resolve(customPath) : path.join(swarmDir, 'memory.db');
 
   try {
@@ -2084,7 +2176,7 @@ export async function storeEntry(options: {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
 
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     const id = `entry_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -2101,6 +2193,18 @@ export async function storeEntry(options: {
       embeddingDimensions = embResult.dimensions;
       embeddingModel = embResult.model;
     }
+
+    // #1941: provision a `vector_indexes` row for this namespace before the
+    // entry insert. The HNSW lookup uses this table to find which namespaces
+    // are indexed — without a row, `memory_search({namespace:"X"})` returns
+    // 0 even when memory_entries holds matching rows. INSERT OR IGNORE
+    // preserves the existing `default` / `patterns` rows.
+    try {
+      db.run(
+        `INSERT OR IGNORE INTO vector_indexes (id, name, dimensions) VALUES (?, ?, ?)`,
+        [namespace, namespace, embeddingDimensions ?? 384]
+      );
+    } catch { /* vector_indexes may not exist on legacy DBs — fall through */ }
 
     // Insert or update entry (upsert mode uses REPLACE)
     const insertSql = upsert
@@ -2132,7 +2236,7 @@ export async function storeEntry(options: {
 
     // Save
     const data = db.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
+    writeFileRestricted(dbPath, Buffer.from(data), { encrypt: true });
     db.close();
 
     // Add to HNSW index for faster future searches
@@ -2199,7 +2303,7 @@ export async function searchEntries(options: {
   } = options;
   const effectiveNamespace = namespace || 'all';
 
-  const swarmDir = path.resolve(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const dbPath = customPath ? path.resolve(customPath) : path.join(swarmDir, 'memory.db');
   const startTime = Date.now();
 
@@ -2223,7 +2327,7 @@ export async function searchEntries(options: {
         // Rerank candidates with exact cosine similarity from SQLite
         const initSqlJs = (await import('sql.js')).default;
         const SQL = await initSqlJs();
-        const fileBuffer = fs.readFileSync(dbPath);
+        const fileBuffer = readFileMaybeEncrypted(dbPath, null);
         const db = new SQL.Database(fileBuffer);
         const reranked: { id: string; key: string; content: string; score: number; namespace: string }[] = [];
 
@@ -2276,7 +2380,7 @@ export async function searchEntries(options: {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
 
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     // Get entries with embeddings
@@ -2416,7 +2520,7 @@ export async function listEntries(options: {
     dbPath: customPath
   } = options;
 
-  const swarmDir = path.join(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const dbPath = customPath || path.join(swarmDir, 'memory.db');
 
   try {
@@ -2430,7 +2534,7 @@ export async function listEntries(options: {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
 
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     // Get total count
@@ -2544,7 +2648,7 @@ export async function getEntry(options: {
     dbPath: customPath
   } = options;
 
-  const swarmDir = path.join(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const dbPath = customPath || path.join(swarmDir, 'memory.db');
 
   try {
@@ -2558,7 +2662,7 @@ export async function getEntry(options: {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
 
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     // Find entry by key
@@ -2596,7 +2700,7 @@ export async function getEntry(options: {
 
     // Save updated database
     const data = db.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
+    writeFileRestricted(dbPath, Buffer.from(data), { encrypt: true });
 
     db.close();
 
@@ -2678,7 +2782,7 @@ export async function deleteEntry(options: {
     dbPath: customPath
   } = options;
 
-  const swarmDir = path.join(process.cwd(), '.swarm');
+  const swarmDir = getMemoryRoot();
   const dbPath = customPath || path.join(swarmDir, 'memory.db');
 
   try {
@@ -2699,7 +2803,7 @@ export async function deleteEntry(options: {
     const initSqlJs = (await import('sql.js')).default;
     const SQL = await initSqlJs();
 
-    const fileBuffer = fs.readFileSync(dbPath);
+    const fileBuffer = readFileMaybeEncrypted(dbPath, null);
     const db = new SQL.Database(fileBuffer);
 
     // Check if entry exists first
@@ -2754,7 +2858,7 @@ export async function deleteEntry(options: {
 
     // Save updated database
     const data = db.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
+    writeFileRestricted(dbPath, Buffer.from(data), { encrypt: true });
 
     db.close();
 

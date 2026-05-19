@@ -31,3 +31,12 @@ npx @claude-flow/cli@latest memory store --namespace patterns --key "autopilot-P
 ```
 
 Call `autopilot_learn` periodically to discover cross-task success patterns.
+
+
+### Neural Learning
+
+After completing tasks, store successful patterns:
+```bash
+npx @claude-flow/cli@latest hooks post-task --task-id "TASK_ID" --success true --train-neural true
+npx @claude-flow/cli@latest memory search --query "TASK_TYPE patterns" --namespace patterns
+```
