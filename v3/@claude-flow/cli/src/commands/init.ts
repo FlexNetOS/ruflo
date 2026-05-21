@@ -188,6 +188,7 @@ const initAction = async (ctx: CommandContext): Promise<CommandResult> => {
   const skipClaude = ctx.flags['skip-claude'] as boolean;
   const onlyClaude = ctx.flags['only-claude'] as boolean;
   const noGlobal = ctx.flags['no-global'] as boolean;
+  const allAgents = ctx.flags['all-agents'] as boolean;
   const codexMode = ctx.flags.codex as boolean;
   const dualMode = ctx.flags.dual as boolean;
   const cwd = ctx.cwd;
@@ -250,6 +251,13 @@ const initAction = async (ctx: CommandContext): Promise<CommandResult> => {
 
   if (onlyClaude) {
     options.components.runtime = false;
+  }
+
+  // ADR-128 Phase 3 — restore full agent set (98 agents) when user explicitly
+  // requests it. Default is the ~24-agent substrate (core, consensus, swarm,
+  // sparc, testing). Pass --all-agents to get the old behavior.
+  if (allAgents) {
+    options.agents.all = true;
   }
 
   // #1744 — opt-out of the user-global ~/.claude/CLAUDE.md "Ruflo Integration"
@@ -1114,6 +1122,12 @@ export const initCommand: Command = {
       type: 'boolean',
       default: false,
     },
+    {
+      name: 'all-agents',
+      description: 'Install all agent categories (ADR-128: default is ~24 substrate agents; this restores the full set of ~89)',
+      type: 'boolean',
+      default: false,
+    },
   ],
   examples: [
     { command: 'claude-flow init', description: 'Initialize with default configuration' },
@@ -1135,6 +1149,7 @@ export const initCommand: Command = {
     { command: 'claude-flow init --codex', description: 'Initialize for OpenAI Codex (AGENTS.md)' },
     { command: 'claude-flow init --codex --full', description: 'Codex init with all 137+ skills' },
     { command: 'claude-flow init --dual', description: 'Initialize for both Claude Code and Codex' },
+    { command: 'claude-flow init --all-agents', description: 'Install all agent categories (~89 agents; ADR-128 opt-in)' },
   ],
   action: initAction,
 };

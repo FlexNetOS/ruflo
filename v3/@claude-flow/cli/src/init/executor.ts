@@ -81,6 +81,10 @@ const SKILLS_MAP: Record<string, string[]> = {
 
 /**
  * Commands to copy based on configuration
+ * ADR-128 Phase 4: every subdirectory under .claude/commands/ now has a
+ * corresponding key. The flow-nexus/ dir was deleted (belongs to the plugin).
+ * New substrate keys default true; opt-in keys (pair, training, stream-chain,
+ * truth, verify) default false per ADR-128 §Phase 3 opt-in rationale.
  */
 const COMMANDS_MAP: Record<string, string[]> = {
   core: ['claude-flow-help.md', 'claude-flow-swarm.md', 'claude-flow-memory.md'],
@@ -91,6 +95,19 @@ const COMMANDS_MAP: Record<string, string[]> = {
   monitoring: ['monitoring'],
   optimization: ['optimization'],
   sparc: ['sparc'],
+  // ADR-128 Phase 4 promotions (previously orphaned)
+  agents: ['agents'],
+  coordination: ['coordination'],
+  hiveMind: ['hive-mind'],
+  memory: ['memory'],
+  swarm: ['swarm'],
+  workflows: ['workflows'],
+  // Opt-in categories (non-universal; default false in CommandsConfig)
+  pair: ['pair'],
+  training: ['training'],
+  streamChain: ['stream-chain'],
+  truth: ['truth'],
+  verify: ['verify'],
 };
 
 /**
@@ -959,6 +976,19 @@ async function copyCommands(
     if (commandsConfig.monitoring) commandsToCopy.push(...COMMANDS_MAP.monitoring);
     if (commandsConfig.optimization) commandsToCopy.push(...COMMANDS_MAP.optimization);
     if (commandsConfig.sparc) commandsToCopy.push(...COMMANDS_MAP.sparc);
+    // ADR-128 Phase 4 substrate promotions
+    if (commandsConfig.agents) commandsToCopy.push(...(COMMANDS_MAP.agents || []));
+    if (commandsConfig.coordination) commandsToCopy.push(...(COMMANDS_MAP.coordination || []));
+    if (commandsConfig.hiveMind) commandsToCopy.push(...(COMMANDS_MAP.hiveMind || []));
+    if (commandsConfig.memory) commandsToCopy.push(...(COMMANDS_MAP.memory || []));
+    if (commandsConfig.swarm) commandsToCopy.push(...(COMMANDS_MAP.swarm || []));
+    if (commandsConfig.workflows) commandsToCopy.push(...(COMMANDS_MAP.workflows || []));
+    // ADR-128 Phase 4 opt-in categories
+    if (commandsConfig.pair) commandsToCopy.push(...(COMMANDS_MAP.pair || []));
+    if (commandsConfig.training) commandsToCopy.push(...(COMMANDS_MAP.training || []));
+    if (commandsConfig.streamChain) commandsToCopy.push(...(COMMANDS_MAP.streamChain || []));
+    if (commandsConfig.truth) commandsToCopy.push(...(COMMANDS_MAP.truth || []));
+    if (commandsConfig.verify) commandsToCopy.push(...(COMMANDS_MAP.verify || []));
   }
 
   // Find source commands directory
