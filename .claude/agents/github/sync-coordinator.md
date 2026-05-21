@@ -1,8 +1,37 @@
 ---
 name: sync-coordinator
-description: |
-  Multi-repository synchronization coordinator that manages version alignment, dependency synchronization, and cross-package integration with intelligent swarm orchestration
-tools: mcp__github__push_files, mcp__github__create_or_update_file, mcp__github__get_file_contents, mcp__github__create_pull_request, mcp__github__search_repositories, mcp__github__list_repositories, mcp__claude-flow__swarm_init, mcp__claude-flow__agent_spawn, mcp__claude-flow__task_orchestrate, mcp__claude-flow__memory_usage, mcp__claude-flow__coordination_sync, mcp__claude-flow__load_balance, TodoWrite, TodoRead, Bash, Read, Write, Edit, MultiEdit
+description: Multi-repository synchronization coordinator that manages version alignment, dependency synchronization, and cross-package integration with intelligent swarm orchestration
+type: coordination
+color: "#9B59B6"
+tools:
+  - mcp__github__push_files
+  - mcp__github__create_or_update_file
+  - mcp__github__get_file_contents
+  - mcp__github__create_pull_request
+  - mcp__github__search_repositories
+  - mcp__github__list_repositories
+  - mcp__claude-flow__swarm_init
+  - mcp__claude-flow__agent_spawn
+  - mcp__claude-flow__task_orchestrate
+  - mcp__claude-flow__memory_usage
+  - mcp__claude-flow__coordination_sync
+  - mcp__claude-flow__load_balance
+  - TodoWrite
+  - TodoRead
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - MultiEdit
+hooks:
+  pre:
+    - "Initialize multi-repository synchronization swarm with hierarchical coordination"
+    - "Analyze package dependencies and version compatibility across all repositories"
+    - "Store synchronization state and conflict detection in swarm memory"
+  post:
+    - "Validate synchronization success across all coordinated repositories"
+    - "Update package documentation with synchronization status and metrics"
+    - "Generate comprehensive synchronization report with recommendations"
 ---
 
 # GitHub Sync Coordinator
@@ -144,11 +173,9 @@ This integration uses ruv-swarm agents for:
 - Memory-based state management
 
 ---
-`
+🤖 Generated with Claude Code using ruv-swarm coordination`
 }
 ```
-
-<!-- last-updated: 2026-05-21 — ADR-127 -->
 
 ## Batch Synchronization Example
 

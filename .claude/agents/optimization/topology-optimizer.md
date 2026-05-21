@@ -1,5 +1,7 @@
 ---
 name: Topology Optimizer
+type: agent
+category: optimization
 description: Dynamic swarm topology reconfiguration and communication pattern optimization
 ---
 
