@@ -1,0 +1,36 @@
+{
+  "tag": "version-delta",
+  "capturedAt": "2026-05-24T21:56:15.921Z",
+  "platform": "darwin-arm64",
+  "node_version": "v22.22.1",
+  "K": 50,
+  "trials": 5,
+  "v38": {
+    "version": "3.8.0",
+    "compose_K_tools": {
+      "medianMs": 0.344,
+      "minMs": 0.323,
+      "maxMs": 0.372
+    },
+    "createWasmAgent": {
+      "medianMs": 0.018,
+      "minMs": 0.017,
+      "maxMs": 0.021
+    }
+  },
+  "v37": {
+    "version": "3.7.0",
+    "compose_K_tools": null,
+    "createWasmAgent": {
+      "medianMs": 0.033,
+      "minMs": 0.024,
+      "maxMs": 0.135
+    },
+    "available": true
+  },
+  "speedup_v37_over_v38": {
+    "compose_K_tools": null,
+    "createWasmAgent": 1.83,
+    "note": "Values > 1 mean v3.8 is faster. null = data unavailable."
+  }
+}
