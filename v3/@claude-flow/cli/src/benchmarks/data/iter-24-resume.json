@@ -1,0 +1,84 @@
+{
+  "iter": 24,
+  "date": "2026-05-27",
+  "title": "GAIA SOTA-pursuit: fix max-turns CLI bug + cost controls",
+  "branch_base": "bench/adr-133-sota-meta",
+  "pr_meta": 2173,
+  "pr_sota_loop": 2165,
+
+  "iter_23_results": {
+    "haiku_4_5": { "pass": 9, "total": 53, "rate_pct": 17.0, "cost_usd": 0.3628, "mean_turns": 6.2, "note": "1 false positive (17000 vs 17, substr judge bug)" },
+    "sonnet_4_6": { "pass": 11, "total": 53, "rate_pct": 20.8, "cost_usd": 4.9713, "mean_turns": 6.3 },
+    "baseline_iter15": { "haiku_pct": 15.1, "sonnet_pct": 9.4 },
+    "target_princeton_hal": 74.6
+  },
+
+  "top_priority_fixes": [
+    {
+      "id": "24-A",
+      "title": "Fix max-turns CLI hardcode",
+      "file": "v3/@claude-flow/cli/src/commands/gaia-bench.ts",
+      "line": 170,
+      "current": "ctx.flags['max-turns'] ?? '8'",
+      "fix": "ctx.flags['max-turns'] ?? '12'",
+      "estimated_gain_pp": "2-4",
+      "cost_impact": "neutral",
+      "rationale": "iter-22 raised DEFAULT_MAX_TURNS to 12 in gaia-agent.ts but gaia-bench.ts CLI hardcodes '8'. At least 6 Sonnet questions failed at exactly turns=8 with null answer. Fix is 1 character change."
+    },
+    {
+      "id": "24-B",
+      "title": "Web browse output truncation",
+      "file": "v3/@claude-flow/cli/src/benchmarks/gaia-tools/web_browse.ts",
+      "estimated_gain_pp": "0 (cost fix)",
+      "cost_impact": "-70% Sonnet cost",
+      "rationale": "Sonnet cost $4.97 vs $0.36 for Haiku — 14x more. Web browse returns verbose HTML content. Truncate to 4000 chars max. Target: Sonnet <$1.50 per 53-Q run."
+    },
+    {
+      "id": "24-C",
+      "title": "GAIA attachment download + serve",
+      "estimated_gain_pp": "10-15",
+      "cost_impact": "+moderate",
+      "rationale": "~8-10 L1 questions require Excel/PDF/image attachments. These are unanswerable without files. Download from HF gaia-benchmark dataset (requires HF_TOKEN). Serve via file_read or python_exec."
+    },
+    {
+      "id": "24-D",
+      "title": "Fix substring judge false positives",
+      "file": "v3/@claude-flow/cli/src/benchmarks/gaia-judge.ts",
+      "estimated_gain_pp": "-1 correction",
+      "cost_impact": "neutral",
+      "rationale": "answer='17000' matched expected='17' via substring. Judge should require exact numeric match or normalized float comparison, not substring. Also affects multi-word answers."
+    }
+  ],
+
+  "sonnet_passes_iter23": [
+    "answer=3 (marathon km/hr calc)",
+    "answer=(¬A→B)↔(A∨¬B) (tautology — borderline judge match)",
+    "answer=2",
+    "answer=Maktay Mato Apple",
+    "answer=Guava",
+    "answer=b, e",
+    "answer=FunkMonk (iter-21 websearch fallback paid off, 8 turns)",
+    "answer=100",
+    "answer=broccoli, celery, fresh basil, lettuce, sweet potatoes (grocery, 6 turns)",
+    "answer=6 (BERT layers, 4 turns)",
+    "answer=THE SEAGULL GLIDED PEACEFULLY TO MY CHAIR (cipher, 4 turns)"
+  ],
+
+  "haiku_passes_iter23": [
+    "answer=17000 (FALSE POSITIVE — expected=17)",
+    "answer=3",
+    "answer=right (Right)",
+    "answer=2",
+    "answer=(¬A→B)↔(A∨¬B)",
+    "answer=Maktay Mato Apple",
+    "answer=Guava",
+    "answer=b,e (b, e)",
+    "answer=100"
+  ],
+
+  "start_command": "git checkout bench/adr-133-sota-meta && git checkout -b feat/iter-24-max-turns-fix",
+  "verify_command": "node v3/@claude-flow/cli/dist/src/commands/gaia-bench.js --help | grep max-turns",
+  "run_command": "node v3/@claude-flow/cli/bin/cli.js gaia-bench run --level 1 --limit 53 --models claude-haiku-4-5,claude-sonnet-4-6 --concurrency 6 --max-turns 12 --output json 2>&1 | tee /tmp/gaia-l1-iter24.json",
+  "cost_estimate_usd": 2.0,
+  "cost_ceiling_usd": 3.50
+}
