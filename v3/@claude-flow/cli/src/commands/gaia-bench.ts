@@ -141,6 +141,12 @@ const runCommand: Command = {
       description: 'Model for LLM-as-judge scoring (default: claude-sonnet-4-6)',
       default: 'claude-sonnet-4-6',
     },
+    {
+      name: 'voting-attempts',
+      type: 'number',
+      description: 'Number of parallel attempts for majority-vote self-consistency (default: 1 = no voting). N>1 costs N× per question. Recommended: 3 (+5-10pp L1 lift per ADR-135 Track A).',
+      default: '1',
+    },
   ],
   examples: [
     {
@@ -155,6 +161,10 @@ const runCommand: Command = {
       command: 'claude-flow gaia-bench run --smoke-only --output json',
       description: 'Quick smoke test (5 fixture questions, no HF token needed)',
     },
+    {
+      command: 'claude-flow gaia-bench run --level 1 --limit 20 --models claude-haiku-4-5 --voting-attempts 3 --output json',
+      description: 'Self-consistency voting: run each question 3×, majority-vote (ADR-135 Track A, +5-10pp expected)',
+    },
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     const level = parseInt(String(ctx.flags.level ?? '1'), 10) as 1 | 2 | 3;
@@ -166,9 +176,12 @@ const runCommand: Command = {
     // Parser converts --smoke-only to camelCase "smokeOnly"
     const smokeOnly = ctx.flags['smokeOnly'] === true || ctx.flags['smokeOnly'] === 'true' ||
       ctx.flags['smoke-only'] === true || ctx.flags['smoke-only'] === 'true';
-    // Parser converts --max-turns → maxTurns, --judge-model → judgeModel
+    // Parser converts --max-turns → maxTurns, --judge-model → judgeModel, --voting-attempts → votingAttempts
     const maxTurns = parseInt(String(ctx.flags['maxTurns'] ?? ctx.flags['max-turns'] ?? '8'), 10);
     const judgeModel = String(ctx.flags['judgeModel'] ?? ctx.flags['judge-model'] ?? 'claude-sonnet-4-6');
+    // votingAttempts=1 means no voting (backward-compat default).  N>1 routes through runGaiaAgentWithVoting.
+    const votingAttempts = parseInt(String(ctx.flags['votingAttempts'] ?? ctx.flags['voting-attempts'] ?? '1'), 10);
+    const useVoting = votingAttempts > 1;
 
     // Dynamic imports to avoid loading at startup.
     // NOTE: gaia-*.ts sources are pre-compiled under dist/src/benchmarks/ only —
@@ -183,6 +196,12 @@ const runCommand: Command = {
     const { runGaiaAgent } = (await import(benchmarksBase + 'gaia-agent.js')) as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { judgeAnswer } = (await import(benchmarksBase + 'gaia-judge.js')) as any;
+    // ADR-135 Track A: voting wrapper (only imported when --voting-attempts > 1).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { runGaiaAgentWithVoting } = useVoting
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? ((await import(benchmarksBase + 'gaia-voting.js')) as any)
+      : { runGaiaAgentWithVoting: null };
 
     // Only print to stderr so stdout stays clean for JSON consumers
     const log = (msg: string) => {
@@ -199,6 +218,9 @@ const runCommand: Command = {
     log(`Models  : ${models.join(', ')}`);
     log(`Limit   : ${limit ?? 'all'}`);
     log(`Concurrency: ${concurrency}`);
+    if (useVoting) {
+      log(`Voting  : ${votingAttempts}× self-consistency (ADR-135 Track A) — cost ~${votingAttempts}× per question`);
+    }
     log('');
 
     // Load questions
@@ -241,10 +263,24 @@ const runCommand: Command = {
 
             let agentResult;
             try {
-              agentResult = await runGaiaAgent(q, {
-                model,
-                maxTurns,
-              });
+              if (useVoting && runGaiaAgentWithVoting) {
+                // ADR-135 Track A: multi-attempt majority voting.
+                agentResult = await runGaiaAgentWithVoting(q, {
+                  attempts: votingAttempts,
+                  model,
+                  maxTurns,
+                });
+                // Log voting metadata alongside the normal verdict line.
+                const vr = agentResult as { votingMethod?: string; agreementCount?: number };
+                log(
+                  `    vote-method=${vr.votingMethod ?? '?'}  agreement=${vr.agreementCount ?? '?'}/${votingAttempts}`,
+                );
+              } else {
+                agentResult = await runGaiaAgent(q, {
+                  model,
+                  maxTurns,
+                });
+              }
             } catch (err) {
               const errorMsg = err instanceof Error ? err.message : String(err);
               log(`    ERROR: ${errorMsg}`);
