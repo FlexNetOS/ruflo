@@ -20,3 +20,10 @@ export type {
   HaikuClient,
   SonaCache,
 } from './simulative-planning-router.js';
+
+// Concrete implementations (ADR-132 iter-9)
+export { createHaikuClient } from './haiku-client.js';
+export type { HaikuClientOptions } from './haiku-client.js';
+
+export { createInProcessSonaCache } from './sona-cache.js';
+export type { InProcessSonaCache } from './sona-cache.js';
