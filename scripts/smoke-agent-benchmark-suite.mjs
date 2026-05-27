@@ -37,7 +37,7 @@ const EXPECTED_OPS = [
   'Router Decide',
   'Pattern Search',
   'Step Record',
-  'Agent Round-Trip',
+  'Agent Ctrl-Plane RTT',
 ];
 
 function run(args) {

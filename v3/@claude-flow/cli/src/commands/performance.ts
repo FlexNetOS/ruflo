@@ -10,20 +10,21 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Command, CommandContext, CommandResult } from '../types.js';
 import { output } from '../output.js';
+import capabilityCommand from './performance-capability.js';
 
 // Benchmark subcommand - REAL measurements
 const benchmarkCommand: Command = {
   name: 'benchmark',
   description: 'Run performance benchmarks',
   options: [
-    { name: 'suite', short: 's', type: 'string', description: 'Benchmark suite: all, wasm, neural, memory, search, agent', default: 'all' },
+    { name: 'suite', short: 's', type: 'string', description: 'Benchmark suite: all, wasm, neural, memory, search, agent (control-plane only — for LLM-driven capability eval use `performance capability`)', default: 'all' },
     { name: 'iterations', short: 'i', type: 'number', description: 'Number of iterations', default: '100' },
     { name: 'warmup', short: 'w', type: 'number', description: 'Warmup iterations', default: '10' },
     { name: 'output', short: 'o', type: 'string', description: 'Output format: text, json, csv', default: 'text' },
   ],
   examples: [
     { command: 'claude-flow performance benchmark -s neural', description: 'Benchmark neural operations' },
-    { command: 'claude-flow performance benchmark -s agent', description: 'Benchmark agent control plane (router + pattern + step)' },
+    { command: 'claude-flow performance benchmark -s agent', description: 'Agent CONTROL PLANE latency (no LLM) — for capability eval use `performance capability`' },
     { command: 'claude-flow performance benchmark -i 1000', description: 'Run with 1000 iterations' },
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
@@ -221,19 +222,23 @@ const benchmarkCommand: Command = {
       });
     }
 
-    // 6. Agent Control-Plane Benchmark (#2156 capabilities scan)
+    // 6. Agent Control-Plane Latency Probe (#2156 capabilities scan)
     //
-    // Measures the agent decision-and-record round-trip without external LLM
-    // calls. Three sub-measurements cover the ADR-026 routing pipeline:
+    // IMPORTANT: this is a CONTROL-PLANE latency probe, NOT a capability
+    // benchmark. It measures whether the routing/memory/hooks plumbing is
+    // responding within its budget — it does NOT measure whether the model
+    // gives correct answers. For real LLM-driven capability evaluation
+    // (pass-rate on agent-style tasks), use the sibling subcommand
+    // `performance capability`, which calls the Anthropic API against a
+    // verifiable-answer fixture and reports a pass rate + cost.
+    //
+    // Three sub-measurements cover the ADR-026 routing pipeline:
     //   - Router decide   : Q-Learning agent selection latency
     //   - Pattern search  : SONA / ReasoningBank prior-pattern lookup
     //   - Step record     : trajectory step recording with embedding
     //
-    // Composite "Agent Round-Trip" sums all three to give a single
-    // capability-regression signal. No ANTHROPIC_API_KEY required — this is
-    // the agent control plane, not the model output. For real GAIA / SWE-bench
-    // evaluation see the gated `--gaia` path (out of scope for the initial
-    // landing; tracked separately).
+    // Composite "Agent Round-Trip" sums all three. No ANTHROPIC_API_KEY
+    // required — this is the agent control plane, not the model output.
     if (suite === 'all' || suite === 'agent') {
       spinner.setText('Benchmarking agent control plane...');
 
@@ -322,7 +327,7 @@ const benchmarkCommand: Command = {
           improvement: recordMean < 25 ? output.success('Target met') : output.warning('Slow'),
         });
         results.push({
-          operation: 'Agent Round-Trip',
+          operation: 'Agent Ctrl-Plane RTT',
           mean: `${roundTripMean.toFixed(2)}ms`,
           p95: `${percentile(roundTripTimes, 95).toFixed(2)}ms`,
           p99: `${percentile(roundTripTimes, 99).toFixed(2)}ms`,
@@ -330,7 +335,7 @@ const benchmarkCommand: Command = {
         });
       } catch (err) {
         results.push({
-          operation: 'Agent Round-Trip',
+          operation: 'Agent Ctrl-Plane RTT',
           mean: 'N/A',
           p95: 'N/A',
           p99: 'N/A',
@@ -739,7 +744,7 @@ export const performanceCommand: Command = {
   name: 'performance',
   description: 'Performance profiling, benchmarking, optimization, metrics',
   aliases: ['perf'],
-  subcommands: [benchmarkCommand, profileCommand, metricsCommand, optimizeCommand, bottleneckCommand],
+  subcommands: [benchmarkCommand, profileCommand, metricsCommand, optimizeCommand, bottleneckCommand, capabilityCommand],
   examples: [
     { command: 'claude-flow performance benchmark', description: 'Run benchmarks' },
     { command: 'claude-flow performance profile', description: 'Profile application' },
@@ -752,7 +757,8 @@ export const performanceCommand: Command = {
     output.writeln();
     output.writeln('Subcommands:');
     output.printList([
-      'benchmark  - Run performance benchmarks (WASM, neural, search, agent)',
+      'benchmark  - Run performance benchmarks (WASM, neural, search, agent control plane)',
+      'capability - Run LLM-driven agent capability eval against Anthropic API (requires ANTHROPIC_API_KEY)',
       'profile    - Profile CPU, memory, I/O usage',
       'metrics    - View and export performance metrics',
       'optimize   - Get optimization recommendations',
