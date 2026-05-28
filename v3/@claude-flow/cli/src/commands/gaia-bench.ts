@@ -204,6 +204,12 @@ const runCommand: Command = {
       description: 'ADR-135 Track B: inject a planning checkpoint every N tool_use turns (default: 4, set 0 to disable). Based on smolagents finding — prevents tunnel-vision on bad strategies.',
       default: '4',
     },
+    {
+      name: 'mode',
+      type: 'string',
+      description: 'Agent mode: "toolcalling" (default, ADR-133 JSON tool_use) or "codeagent" (ADR-138 iter 54 — smolagents-style Python code blocks).',
+      default: 'toolcalling',
+    },
   ],
   examples: [
     {
@@ -238,6 +244,10 @@ const runCommand: Command = {
       command: 'claude-flow gaia-bench run --level 1 --models claude-sonnet-4-6 --hardness-routing --enable-critic --planning-interval 4',
       description: 'Recommended config: hardness routing + critic + planning checkpoints (~$2/run est.)',
     },
+    {
+      command: 'claude-flow gaia-bench run --level 1 --models claude-sonnet-4-6 --mode codeagent',
+      description: 'ADR-138 iter 54: CodeAgent (smolagents-style Python code blocks) — targets HAL-level accuracy',
+    },
   ],
   action: async (ctx: CommandContext): Promise<CommandResult> => {
     const level = parseInt(String(ctx.flags.level ?? '1'), 10) as 1 | 2 | 3;
@@ -271,6 +281,11 @@ const runCommand: Command = {
     const enableDecompose = ctx.flags['decompose'] === true || ctx.flags['decompose'] === 'true';
     // ADR-135 Track B: planning interval (passed through to runGaiaAgent via agentOpts).
     const planningInterval = parseInt(String(ctx.flags['planningInterval'] ?? ctx.flags['planning-interval'] ?? '4'), 10);
+    // ADR-138 iter 54: CodeAgent mode.
+    const agentModeRaw = String(ctx.flags['mode'] ?? 'toolcalling');
+    // 'agent' is a backward-compat alias for 'toolcalling'
+    const agentMode = agentModeRaw === 'agent' ? 'toolcalling' : agentModeRaw;
+    const useCodeAgent = agentMode === 'codeagent';
 
     // Dynamic imports to avoid loading at startup.
     // NOTE: gaia-*.ts sources are pre-compiled under dist/src/benchmarks/ only --
@@ -281,6 +296,12 @@ const runCommand: Command = {
     const benchmarksBase = new URL('../benchmarks/', import.meta.url).href;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { loadGaia } = (await import(benchmarksBase + 'gaia-loader.js')) as any;
+    // ADR-138 iter 54: CodeAgent — only imported when --mode codeagent.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { runGaiaCodeAgent } = useCodeAgent
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? ((await import(benchmarksBase + 'gaia-codeagent.js')) as any)
+      : { runGaiaCodeAgent: null };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { runGaiaAgent } = (await import(benchmarksBase + 'gaia-agent.js')) as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -338,6 +359,7 @@ const runCommand: Command = {
     log(output.bold(`GAIA Benchmark -- Level ${level}${smokeOnly ? ' [SMOKE]' : ''}`));
     log(output.dim('-'.repeat(60)));
     log(`Models  : ${models.join(', ')}`);
+    log(`Mode    : ${agentMode}${useCodeAgent ? ' (ADR-138 iter 54 — CodeAgent harness)' : ''}`);
     log(`Limit   : ${limit ?? 'all'}`);
     log(`Concurrency: ${concurrency}`);
     if (useVoting && !hardnessRouting) {
@@ -481,7 +503,16 @@ const runCommand: Command = {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               let agentResult: any;
               try {
-                if (useThisVoting && runGaiaAgentWithVoting) {
+                if (useCodeAgent && runGaiaCodeAgent) {
+                  // ADR-138 iter 54: smolagents-style CodeAgent (Python code blocks, not JSON tool_use).
+                  const codeAgentMaxTurns = effectiveMaxTurns === 12 ? 20 : effectiveMaxTurns;
+                  agentResult = await runGaiaCodeAgent(sq, {
+                    model: effectiveModel,
+                    maxTurns: codeAgentMaxTurns,
+                    planningInterval,
+                    apiKey,
+                  });
+                } else if (useThisVoting && runGaiaAgentWithVoting) {
                   // ADR-135 Track A: multi-attempt majority voting.
                   agentResult = await runGaiaAgentWithVoting(sq, {
                     ...agentOpts,

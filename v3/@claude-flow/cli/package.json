@@ -81,7 +81,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const{cpSync,mkdirSync}=require('fs');mkdirSync('dist/src/benchmarks',{recursive:true});cpSync('src/benchmarks/gaia-codeagent-runner.py','dist/src/benchmarks/gaia-codeagent-runner.py')\"",
     "test": "vitest run",
     "test:plugin-store": "npx tsx src/plugins/tests/standalone-test.ts",
     "test:pattern-store": "npx tsx src/transfer/store/tests/standalone-test.ts",
