@@ -120,6 +120,7 @@
     "@ruvector/ruvllm-wasm": "^2.0.2",
     "@ruvector/rvagent-wasm": "^0.1.0",
     "@ruvector/sona": "^0.1.6",
+    "@ruvector/tiny-dancer": "^0.1.18",
     "agentdb": "^3.0.0-alpha.16",
     "agentic-flow": "^3.0.0-alpha.1",
     "ruvector": "^0.2.27"

@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { extname, isAbsolute, resolve as resolvePath } from 'path';
-import { ClaudeModel, getModelRouter, ModelRouter, ModelRoutingResult } from './model-router.js';
+import { ClaudeModel, getModelRouter, ModelRouter, ModelRoutingResult, RoutedBy } from './model-router.js';
 import { applyCodemod, isDeterministicCodemod, type CodemodLanguage } from './codemods/engine.js';
 
 /** Map a file path to the codemod engine's language, falling back to a hint. */
@@ -72,6 +72,12 @@ export interface EnhancedRouteResult {
   canSkipLLM?: boolean;
   estimatedLatencyMs: number;
   estimatedCost: number;
+  /**
+   * Which mechanism produced the text-routing decision (#2334). Absent on
+   * paths that never reach the base router (Tier-1 codemod, Tier-3 keyword
+   * shortcut).
+   */
+  routedBy?: RoutedBy;
 }
 
 /**
@@ -368,9 +374,17 @@ export class EnhancedModelRouter {
   }
 
   /**
-   * Route a task to the optimal tier and handler
+   * Route a task to the optimal tier and handler.
+   *
+   * `context.embedding` (#2334) threads a task embedding through to the base
+   * router's `route(task, embedding)` seam — feeding the embedding branch of
+   * `computeSemanticDepth` and, when the neural gate is open, the FastGRNN
+   * path. Optional; omitting it preserves pre-#2334 behavior exactly.
    */
-  async route(task: string, context?: { filePath?: string }): Promise<EnhancedRouteResult> {
+  async route(
+    task: string,
+    context?: { filePath?: string; embedding?: number[] }
+  ): Promise<EnhancedRouteResult> {
     // Step 1: Deterministic codemod detection (ADR-143).
     // Only intents that a codemod can apply *deterministically and safely* skip
     // the LLM. Intents that need inference (add-types, add-error-handling,
@@ -456,8 +470,10 @@ export class EnhancedModelRouter {
       }
     }
 
-    // Step 4: Text-based complexity via the local heuristic + bandit router.
-    const baseResult = await this.baseRouter.route(task);
+    // Step 4: Text-based complexity via the base router. With an embedding
+    // threaded through (#2334) the semantic-depth embedding branch is live,
+    // and the neural path is consulted when its env gate is open.
+    const baseResult = await this.baseRouter.route(task, context?.embedding);
 
     // Step 5: Combine AST complexity with the text-routing result.
     // Also boost if a single tier3 keyword is found.
@@ -484,6 +500,7 @@ export class EnhancedModelRouter {
         canSkipLLM: false,
         estimatedLatencyMs: 500,
         estimatedCost: 0.0002,
+        routedBy: baseResult.routedBy,
       };
     }
 
@@ -498,6 +515,7 @@ export class EnhancedModelRouter {
         canSkipLLM: false,
         estimatedLatencyMs: 2000,
         estimatedCost: 0.003,
+        routedBy: baseResult.routedBy,
       };
     }
 
@@ -511,6 +529,7 @@ export class EnhancedModelRouter {
       canSkipLLM: false,
       estimatedLatencyMs: 5000,
       estimatedCost: 0.015,
+      routedBy: baseResult.routedBy,
     };
   }
 
@@ -679,7 +698,7 @@ export function createEnhancedModelRouter(
  */
 export async function enhancedRouteToModel(
   task: string,
-  context?: { filePath?: string }
+  context?: { filePath?: string; embedding?: number[] }
 ): Promise<EnhancedRouteResult> {
   const router = getEnhancedModelRouter();
   return router.route(task, context);

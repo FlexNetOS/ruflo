@@ -20,20 +20,28 @@
  * - Sonnet: medium confidence, moderate complexity (balanced)
  * - Opus: low confidence, high complexity (most capable)
  *
- * Note (#2329): An earlier design (ADR-026 + this file's previous header)
- * described a Tiny-Dancer / FastGRNN neural router with embedding-based
- * complexity scoring. That path was never wired in — `@ruvector/tiny-dancer`
- * is not imported here and the `embedding`-consuming branch in
- * `computeSemanticDepth` is only reachable via the externally-callable
- * `routeToModelFull(task, embedding)` wrapper (no internal callers). The
- * shipped router is the heuristic + bandit described above; the neural
- * path remains a future direction tracked in #2329.
+ * Neural path (#2334 Phase 1): the `@ruvector/tiny-dancer` FastGRNN seam is
+ * now wired through `route(task, embedding?)` behind a double env gate
+ * (CLAUDE_FLOW_ROUTER_NEURAL=1 + CLAUDE_FLOW_ROUTER_MODEL_PATH) that is OFF
+ * by default — see `neural-router.ts`. Every routing result reports which
+ * path produced it via `routedBy: 'fastgrnn' | 'bandit-fallback' |
+ * 'heuristic'` (ADR-086/074: observable, not inferred). Until a trained
+ * FastGRNN safetensors artifact ships (the Phase 2 gate in #2334), the
+ * default behavior is byte-identical to the heuristic + bandit described
+ * above. Opt-in trajectory collection for Phase 2 training lives in
+ * `router-trajectory.ts` (CLAUDE_FLOW_ROUTER_TRAJECTORY=1).
+ *
+ * History (#2329): an earlier design (ADR-026 + this file's previous header)
+ * described this neural router as already shipped; it never was. #2330 made
+ * the docs honest, #2334 is wiring the real thing through the seam.
  *
  * @module model-router
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { neuralRoutingEnabled, tryNeuralRoute } from './neural-router.js';
+import { recordTrajectoryDecision, recordTrajectoryOutcome } from './router-trajectory.js';
 
 // ============================================================================
 // Types & Constants
@@ -121,6 +129,16 @@ export interface ModelRouterConfig {
 }
 
 /**
+ * Which mechanism produced a routing decision (#2334, ADR-086/074 —
+ * observable, never inferred from import success):
+ * - 'fastgrnn'        — the @ruvector/tiny-dancer neural path routed it
+ * - 'bandit-fallback' — neural was enabled but unavailable/failed; the
+ *                       heuristic + Thompson bandit routed it instead
+ * - 'heuristic'       — neural not enabled (default); heuristic + bandit
+ */
+export type RoutedBy = 'fastgrnn' | 'bandit-fallback' | 'heuristic';
+
+/**
  * Routing decision result
  */
 export interface ModelRoutingResult {
@@ -140,6 +158,8 @@ export interface ModelRoutingResult {
   inferenceTimeUs: number;
   /** Estimated cost multiplier */
   costMultiplier: number;
+  /** Which mechanism produced this decision (#2334). */
+  routedBy: RoutedBy;
 }
 
 /**
@@ -390,7 +410,13 @@ export class ModelRouter {
   }
 
   /**
-   * Route a task to the optimal model
+   * Route a task to the optimal model.
+   *
+   * `embedding` is the #2334 neural seam: when provided it (a) feeds the
+   * `computeSemanticDepth` embedding branch, and (b) — only when the neural
+   * gate is open (see neural-router.ts) — is offered to the FastGRNN router
+   * first, with the heuristic + bandit as fallback. With the gate closed
+   * (default) behavior is identical to the pre-#2334 router.
    */
   async route(task: string, embedding?: number[]): Promise<ModelRoutingResult> {
     const startTime = performance.now();
@@ -398,14 +424,24 @@ export class ModelRouter {
     // Analyze task complexity
     const complexity = this.analyzeComplexity(task, embedding);
 
+    // #2334 — neural-first when the gate is open. tryNeuralRoute never
+    // throws; null means unavailable/failed → bandit fallback below.
+    let routedBy: RoutedBy = 'heuristic';
+    let neuralDecision: { model: ClaudeModel; confidence: number; uncertainty: number } | null = null;
+    if (embedding && embedding.length > 0 && neuralRoutingEnabled()) {
+      neuralDecision = await tryNeuralRoute(embedding);
+      routedBy = neuralDecision ? 'fastgrnn' : 'bandit-fallback';
+    }
+
     // Compute base model scores
     const scores = this.computeModelScores(complexity);
 
     // Apply circuit breaker adjustments
     const adjustedScores = this.applyCircuitBreaker(scores);
 
-    // Select best model
-    const { model, confidence, uncertainty } = this.selectModel(adjustedScores, complexity.score);
+    // Select best model (neural decision wins when present)
+    const { model, confidence, uncertainty } = neuralDecision
+      ?? this.selectModel(adjustedScores, complexity.score);
 
     const inferenceTimeUs = (performance.now() - startTime) * 1000;
 
@@ -415,17 +451,28 @@ export class ModelRouter {
       confidence,
       uncertainty,
       complexity: complexity.score,
-      reasoning: this.buildReasoning(model, complexity, confidence),
+      reasoning: this.buildReasoning(model, complexity, confidence)
+        + (routedBy !== 'heuristic' ? ` | RoutedBy: ${routedBy}` : ''),
       alternatives: Object.entries(adjustedScores)
         .filter(([m]) => m !== model)
         .map(([m, score]) => ({ model: m as ClaudeModel, score }))
         .sort((a, b) => b.score - a.score),
       inferenceTimeUs,
       costMultiplier: MODEL_CAPABILITIES[model].costMultiplier,
+      routedBy,
     };
 
     // Track decision
     this.trackDecision(task, result);
+
+    // #2334 Phase 1 — opt-in per-decision dataset row for Phase 2 training
+    // (no-op unless CLAUDE_FLOW_ROUTER_TRAJECTORY=1).
+    recordTrajectoryDecision(
+      task,
+      embedding,
+      { score: complexity.score, ...complexity.features },
+      { model, confidence, uncertainty, routedBy },
+    );
 
     return result;
   }
@@ -757,6 +804,10 @@ export class ModelRouter {
     const reward = BANDIT_REWARDS[model]?.[outcome] ?? 0.5;
     bp[model].alpha += reward;
     bp[model].beta += 1 - reward;
+
+    // #2334 Phase 1 — opt-in outcome row, joined to the decision row on
+    // taskHash for offline Phase 2 training (no-op unless enabled).
+    recordTrajectoryOutcome(task, model, outcome);
 
     this.saveState();
   }
