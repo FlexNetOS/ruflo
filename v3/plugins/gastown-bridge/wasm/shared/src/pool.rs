@@ -131,7 +131,9 @@ pub fn small_buffer<T, const N: usize>() -> SmallBuffer<T, N> {
 /// Create a small buffer with initial values
 #[inline(always)]
 pub fn small_buffer_from<T: Clone, const N: usize>(slice: &[T]) -> SmallBuffer<T, N> {
-    SmallVec::from_slice(slice)
+    let mut buffer = SmallVec::new();
+    buffer.extend(slice.iter().cloned());
+    buffer
 }
 
 #[cfg(test)]

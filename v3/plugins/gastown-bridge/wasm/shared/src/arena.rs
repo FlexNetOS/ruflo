@@ -4,46 +4,43 @@
 //! All allocations are freed together when the arena is dropped.
 
 use bumpalo::Bump;
-use std::cell::RefCell;
 
 /// Thread-local arena allocator
 pub struct Arena {
-    bump: RefCell<Bump>,
+    bump: Bump,
 }
 
 impl Arena {
     /// Create a new arena with default capacity
     #[inline]
     pub fn new() -> Self {
-        Self {
-            bump: RefCell::new(Bump::new()),
-        }
+        Self { bump: Bump::new() }
     }
 
     /// Create a new arena with pre-allocated capacity
     #[inline]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            bump: RefCell::new(Bump::with_capacity(capacity)),
+            bump: Bump::with_capacity(capacity),
         }
     }
 
     /// Allocate a value in the arena
     #[inline(always)]
     pub fn alloc<T>(&self, value: T) -> &T {
-        self.bump.borrow().alloc(value)
+        self.bump.alloc(value)
     }
 
     /// Allocate a string slice in the arena (zero-copy for owned strings)
     #[inline(always)]
     pub fn alloc_str(&self, s: &str) -> &str {
-        self.bump.borrow().alloc_str(s)
+        self.bump.alloc_str(s)
     }
 
     /// Allocate a slice in the arena
     #[inline(always)]
     pub fn alloc_slice<T: Copy>(&self, slice: &[T]) -> &[T] {
-        self.bump.borrow().alloc_slice_copy(slice)
+        self.bump.alloc_slice_copy(slice)
     }
 
     /// Allocate a vector's contents in the arena
@@ -54,14 +51,14 @@ impl Arena {
 
     /// Reset the arena for reuse (very fast - O(1))
     #[inline(always)]
-    pub fn reset(&self) {
-        self.bump.borrow_mut().reset();
+    pub fn reset(&mut self) {
+        self.bump.reset();
     }
 
     /// Get allocated bytes
     #[inline]
     pub fn allocated_bytes(&self) -> usize {
-        self.bump.borrow().allocated_bytes()
+        self.bump.allocated_bytes()
     }
 }
 
@@ -132,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_arena_reset() {
-        let arena = Arena::new();
+        let mut arena = Arena::new();
         arena.alloc_str("hello");
         arena.alloc_str("world");
         let before = arena.allocated_bytes();

@@ -36,7 +36,7 @@ petgraph = "0.6"
 # Performance utilities (shared)
 rustc-hash = "2.0"           # FxHash - faster than std HashMap
 bumpalo = "3.14"             # Arena allocator
-smallvec = "1.13"            # Stack-allocated small vectors
+smallvec = { version = "1.13", features = ["const_generics"] } # Stack-allocated small vectors
 arrayvec = "0.7"             # Fixed-capacity vectors (no heap)
 
 # SIMD (when available)
