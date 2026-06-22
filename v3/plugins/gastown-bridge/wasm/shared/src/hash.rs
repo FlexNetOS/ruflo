@@ -3,7 +3,7 @@
 //! FxHash is ~2x faster than std HashMap for small keys (< 64 bytes).
 //! Based on rustc's internal hash implementation.
 
-use rustc_hash::{FxHasher, FxBuildHasher as RustcFxBuildHasher};
+use rustc_hash::FxHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasherDefault;
 
