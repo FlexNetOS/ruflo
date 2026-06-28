@@ -368,7 +368,7 @@ jobs:
       test-verification,
       build-verification,
       docs-verification
-    ]
+      ]
     if: always()
     steps:
       - name: Checkout repository

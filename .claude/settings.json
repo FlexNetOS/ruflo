@@ -1,12 +1,12 @@
 {
-  "_comment_skillListingBudgetFraction": "#1834 — repo has 367 SKILL.md files (5x duplicates of common skills) across .agents/skills, .claude/skills, archive/v2/.claude/skills, v3/@claude-flow/{cli,mcp}/.claude/skills. With Claude Code's default 1% budget, ~378 descriptions get truncated. Bumping to 6% covers the actual usage (5.5%). Long-term fix is to prune the duplicates and archive paths (see #1834).",
+  "_comment_skillListingBudgetFraction": "#1834 \u2014 repo has 367 SKILL.md files (5x duplicates of common skills) across .agents/skills, .claude/skills, archive/v2/.claude/skills, v3/@claude-flow/{cli,mcp}/.claude/skills. With Claude Code's default 1% budget, ~378 descriptions get truncated. Bumping to 6% covers the actual usage (5.5%). Long-term fix is to prune the duplicates and archive paths (see #1834).",
   "agents": {
     "customAgents": [],
     "source": ".claude/agents"
   },
   "attribution": {
     "commit": "Co-Authored-By: RuFlo <ruv@ruv.net>",
-    "pr": "🤖 Generated with [RuFlo](https://github.com/ruvnet/ruflo)"
+    "pr": "\ud83e\udd16 Generated with [RuFlo](https://github.com/ruvnet/ruflo)"
   },
   "claudeFlow": {
     "adr": {
@@ -203,6 +203,14 @@
             "type": "command"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.handoff/hooks/session-end.sh\""
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -227,6 +235,14 @@
             "statusMessage": "Rusty IDD front door: computing the next step",
             "timeout": 180,
             "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.handoff/hooks/loop-entry.sh\""
           }
         ]
       }
