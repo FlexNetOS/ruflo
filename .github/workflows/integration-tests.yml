@@ -694,7 +694,7 @@ jobs:
       test-memory-integration,
       test-fault-tolerance,
       test-performance-integration
-    ]
+      ]
     if: always()
     steps:
       - name: Checkout repository
